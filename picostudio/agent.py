@@ -446,7 +446,7 @@ def run_agent_stream(
             "tools": tools_spec,
             "tool_choice": "auto",
             "temperature": 0.25,
-            "max_tokens": 1300,
+            "max_tokens": 4096,
             "stream": True,
         }
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
@@ -547,11 +547,16 @@ def run_agent_stream(
         for tc in tool_calls:
             fn_name = tc["function"]["name"]
             raw_args = tc["function"]["arguments"]
+            parse_err = None
             try:
                 parsed_args = json.loads(raw_args) if raw_args else {}
-            except Exception:
+            except Exception as exc:
                 parsed_args = {}
-            if is_plan_mode and fn_name not in READONLY_TOOL_NAMES:
+                parse_err = str(exc)
+            if parse_err:
+                result_text = f"ERROR: Tool '{fn_name}' JSON arguments were invalid or truncated ({parse_err}). Retry with valid JSON or write one file at a time."
+                change_info = None
+            elif is_plan_mode and fn_name not in READONLY_TOOL_NAMES:
                 result_text = f"ERROR: Plan modunda '{fn_name}' engellendi. Sadece okuma araclarini kullanin."
                 change_info = None
             else:
