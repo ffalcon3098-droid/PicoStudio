@@ -23,6 +23,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from picostudio import git_ops
 from picostudio.agent import run_agent_stream
 from picostudio.arbiter import GPUArbiter, load_config
 from picostudio.terminal import TerminalManager, TerminalSession
@@ -70,7 +71,11 @@ IDE_HTML = r"""<!doctype html>
   .pane:last-child{border-right:none}
   .pane-hdr{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-bottom:1px solid var(--b);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);gap:6px}
 
-  /* Left Explorer */
+  /* Left Explorer + Git Panel */
+  .ltabs{display:flex;background:var(--p1);border-bottom:1px solid var(--b)}
+  .ltab{flex:1;padding:7px 6px;text-align:center;font-size:11.5px;font-weight:700;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;justify-content:center;gap:5px}
+  .ltab.active{color:var(--acc);border-bottom-color:var(--acc);background:var(--p2)}
+  .gbadge{background:var(--acc);color:#06121f;font-size:10px;font-weight:800;padding:0 5px;border-radius:999px;display:none}
   .search-box{padding:7px 8px;border-bottom:1px solid var(--b);display:flex;gap:5px}
   .search-box input{flex:1;min-width:0}
   .tree{flex:1;overflow-y:auto;padding:5px 0;font-size:12.5px}
@@ -81,8 +86,19 @@ IDE_HTML = r"""<!doctype html>
   .search-hits{border-top:1px solid var(--b);max-height:170px;overflow-y:auto;background:var(--code);font-size:11.5px;display:none}
   .hit{padding:5px 9px;border-bottom:1px solid #162033;cursor:pointer}
   .hit:hover{background:var(--p2)}
+  .git-panel{flex:1;display:none;flex-direction:column;min-height:0;overflow:hidden}
+  .git-box{padding:8px;border-bottom:1px solid var(--b);display:flex;flex-direction:column;gap:6px}
+  .git-scroll{flex:1;overflow-y:auto;padding:4px 0;font-size:12px}
+  .git-sec{padding:5px 10px 3px;font-size:10.5px;font-weight:700;color:var(--mut);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+  .gfile{padding:4px 9px;display:flex;align-items:center;gap:5px;cursor:pointer;color:#cbd5e1}
+  .gfile:hover{background:var(--p2)}
+  .gfile .gp{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+  .gcode{font-family:Consolas,monospace;font-size:10.5px;font-weight:700;width:18px;text-align:center;flex-shrink:0}
+  .gcode.M{color:var(--warn)} .gcode.A,.gcode.U{color:var(--ok)} .gcode.D{color:var(--err)}
+  .glog{padding:5px 10px;border-bottom:1px solid #162033;font-size:11px;color:var(--mut)}
+  .glog b{color:var(--acc);font-family:Consolas,monospace}
 
-  /* Center Editor + Resizable Terminal Pro */
+  /* Center Editor Pro + Visual Diff + Resizable Terminal Pro */
   .center-col{display:flex;flex-direction:column;min-height:0;background:var(--bg);border-right:1px solid var(--b);overflow:hidden}
   .editor-area{flex:1;display:flex;flex-direction:column;min-height:90px;overflow:hidden}
   .tabbar{display:flex;align-items:center;background:var(--p1);border-bottom:1px solid var(--b);overflow-x:auto;gap:2px;padding:0 6px}
@@ -91,11 +107,50 @@ IDE_HTML = r"""<!doctype html>
   .etab .x{font-size:11px;opacity:.65;padding:0 3px;border-radius:3px}
   .etab .x:hover{background:#334155;opacity:1}
   .etoolbar{display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--p2);border-bottom:1px solid var(--b);font-size:11.5px;color:var(--mut);flex-wrap:wrap}
-  .code-host{flex:1;display:flex;min-height:0;background:var(--code);position:relative}
-  .gutter{width:46px;background:#0a0f18;color:#475569;font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.5;padding:10px 6px;text-align:right;overflow:hidden;user-select:none;border-right:1px solid #172033}
-  #codeEditor{flex:1;background:transparent;color:#e2e8f0;border:none;outline:none;resize:none;padding:10px 12px;font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.5;white-space:pre;overflow:auto;tab-size:4}
+  .find-bar{display:none;align-items:center;gap:6px;padding:5px 10px;background:#101a2e;border-bottom:1px solid #26395e;font-size:12px;flex-wrap:wrap}
+  .find-bar input{width:170px;padding:3px 7px;font-size:12px}
+  .code-host{flex:1;display:flex;min-height:0;background:var(--code);position:relative;overflow:hidden}
+  .gutter{width:46px;background:#0a0f18;color:#475569;font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.5;padding:10px 6px;text-align:right;overflow:hidden;user-select:none;border-right:1px solid #172033;flex-shrink:0}
+  .code-stage{flex:1;position:relative;min-width:0;min-height:0;overflow:hidden;background:var(--code)}
+  .code-hl{position:absolute;inset:0;margin:0;padding:10px 12px;font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.5;white-space:pre;overflow:hidden;pointer-events:none;color:#e2e8f0;tab-size:4}
+  #codeEditor{position:absolute;inset:0;width:100%;height:100%;margin:0;background:transparent;color:transparent;caret-color:#38bdf8;border:none;outline:none;resize:none;padding:10px 12px;font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.5;white-space:pre;overflow:auto;tab-size:4;-webkit-text-fill-color:transparent}
+  #codeEditor::placeholder{-webkit-text-fill-color:#475569;color:#475569}
+  #codeEditor::selection{background:rgba(56,189,248,.28)}
+  .tok-kw{color:#c084fc;font-weight:600} .tok-fn{color:#60a5fa} .tok-str{color:#86efac}
+  .tok-num{color:#fbbf24} .tok-com{color:#64748b;font-style:italic} .tok-dec{color:#f472b6}
+  .tok-key{color:#38bdf8} .tok-tag{color:#f87171} .tok-var{color:#fb923c}
+  mark.hl-match{background:rgba(250,204,21,.28);color:inherit;border-radius:2px}
+  mark.hl-match.cur{background:rgba(250,204,21,.62);outline:1px solid #facc15}
+  #diffViewer{display:none;flex:1;flex-direction:column;min-height:0;background:var(--code);overflow:hidden}
+  .diff-hdr{display:flex;align-items:center;gap:8px;padding:7px 12px;background:#0f172a;border-bottom:1px solid var(--b);font-size:12px;flex-wrap:wrap}
+  .diff-body{flex:1;overflow:auto;padding:8px 0;font-family:"Cascadia Code",Consolas,monospace;font-size:12px;line-height:1.48}
+  .dln{padding:0 12px;white-space:pre;min-height:18px}
+  .dln.add{background:rgba(34,197,94,.14);color:#86efac}
+  .dln.del{background:rgba(239,68,68,.15);color:#fca5a5}
+  .dln.hunk{background:rgba(56,189,248,.12);color:#7dd3fc;font-weight:600;margin-top:4px}
+  .dln.meta{color:#64748b}
+  .dln.ctx{color:#cbd5e1}
   #mediaViewer{display:none;flex:1;align-items:center;justify-content:center;flex-direction:column;gap:10px;padding:16px;background:#05080f}
   #mediaViewer video,#mediaViewer img{max-width:100%;max-height:78%;border-radius:8px;border:1px solid var(--b)}
+
+  /* Quick Open Ctrl+P Modal */
+  .qo-backdrop{display:none;position:fixed;inset:0;background:rgba(4,7,14,.68);z-index:900;align-items:flex-start;justify-content:center;padding-top:11vh}
+  .qo-modal{width:540px;max-width:92vw;background:var(--p1);border:1px solid #334a73;border-radius:10px;box-shadow:0 20px 55px rgba(0,0,0,.65);overflow:hidden;display:flex;flex-direction:column}
+  .qo-modal input{border:none;border-bottom:1px solid var(--b);border-radius:0;padding:11px 14px;font-size:14px;background:#0c1322;outline:none}
+  .qo-list{max-height:320px;overflow-y:auto;padding:4px 0}
+  .qo-item{padding:7px 14px;cursor:pointer;display:flex;justify-content:space-between;font-size:12.5px;color:#cbd5e1}
+  .qo-item.sel,.qo-item:hover{background:rgba(56,189,248,.16);color:#fff}
+  .qo-item .qo-dir{color:var(--mut);font-size:11px}
+
+  /* Agent v2 Plan & Auto-Verify Cards */
+  .plan-card{margin-top:8px;padding:9px 10px;border-radius:8px;background:#101c33;border:1px solid #2c4c7e;display:flex;flex-direction:column;gap:7px}
+  .verify-card{margin-top:6px;border-radius:7px;border:1px solid var(--b);overflow:hidden;background:var(--code)}
+  .verify-card.ok{border-color:rgba(34,197,94,.45)}
+  .verify-card.fail{border-color:rgba(239,68,68,.5)}
+  .verify-card .vh{padding:5px 8px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .verify-card.ok .vh{background:rgba(34,197,94,.14);color:#86efac}
+  .verify-card.fail .vh{background:rgba(239,68,68,.16);color:#fca5a5}
+  .verify-card pre{margin:0;padding:7px 8px;font-size:10.8px;max-height:110px;overflow:auto;color:#cbd5e1;font-family:Consolas,monospace}
 
   /* Terminal Pro Resizer, Multi-Tab, ANSI & Warp AI Bar */
   .resizer{height:5px;background:var(--b);cursor:row-resize;flex-shrink:0;transition:background .15s}
@@ -151,7 +206,7 @@ IDE_HTML = r"""<!doctype html>
 <header>
   <div class="brand">
     <span>PicoStudio IDE</span>
-    <span class="pill">v0.3.0</span>
+    <span class="pill">v0.4.0</span>
     <span id="gpuOwnerPill" class="pill">GPU: Boşta</span>
   </div>
   <div class="row">
@@ -169,40 +224,83 @@ IDE_HTML = r"""<!doctype html>
 </header>
 
 <div class="workbench">
-  <!-- LEFT: EXPLORER -->
+  <!-- LEFT: EXPLORER + GIT -->
   <section class="pane">
-    <div class="pane-hdr">
-      <span>Dosyalar</span>
-      <div class="row" style="gap:4px">
-        <button class="sm" onclick="newFilePrompt()">+ Yeni</button>
-        <button class="sm" onclick="loadTree()">↻</button>
+    <div class="ltabs">
+      <div id="ltabFiles" class="ltab active" onclick="switchLeftTab('files')">Dosyalar</div>
+      <div id="ltabGit" class="ltab" onclick="switchLeftTab('git')">Git <span id="gitBadge" class="gbadge">0</span></div>
+    </div>
+
+    <div id="leftFiles" style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <div class="pane-hdr">
+        <span>Gezgin</span>
+        <div class="row" style="gap:4px">
+          <button class="sm" onclick="openQuickOpen()" title="Hızlı dosya aç (Ctrl+P)">Ctrl+P</button>
+          <button class="sm" onclick="newFilePrompt()">+ Yeni</button>
+          <button class="sm" onclick="loadTree()">↻</button>
+        </div>
       </div>
+      <div class="search-box">
+        <input id="searchInp" placeholder="Projede ara..." onkeydown="if(event.key==='Enter')searchProject()" />
+        <button class="sm" onclick="searchProject()">Ara</button>
+      </div>
+      <div id="searchHits" class="search-hits"></div>
+      <div id="fileTree" class="tree"></div>
     </div>
-    <div class="search-box">
-      <input id="searchInp" placeholder="Projede ara..." onkeydown="if(event.key==='Enter')searchProject()" />
-      <button class="sm" onclick="searchProject()">Ara</button>
+
+    <div id="leftGit" class="git-panel">
+      <div class="pane-hdr">
+        <span id="gitBranchLbl">⎇ Git</span>
+        <div class="row" style="gap:4px">
+          <button class="sm" onclick="gitStageAll()" title="Tüm değişiklikleri stage et">+ Tümü</button>
+          <button class="sm" onclick="loadGitStatus(true)">↻</button>
+        </div>
+      </div>
+      <div class="git-box">
+        <textarea id="gitCommitMsg" rows="2" placeholder="Commit mesajı yazın..."></textarea>
+        <div class="row" style="gap:5px">
+          <button class="sm primary" style="flex:1" onclick="gitCommit()">Commit</button>
+          <button id="gitAiBtn" class="sm" onclick="gitAiMessage()" title="Yerel AI ile diff'ten commit mesajı üret">✨ AI</button>
+          <button class="sm" onclick="openGitDiff('',false)" title="Tüm çalışma diff'ini gör">Diff</button>
+        </div>
+      </div>
+      <div id="gitScroll" class="git-scroll"></div>
     </div>
-    <div id="searchHits" class="search-hits"></div>
-    <div id="fileTree" class="tree"></div>
   </section>
 
-  <!-- CENTER: EDITOR + TERMINAL -->
+  <!-- CENTER: EDITOR PRO + VISUAL DIFF + TERMINAL PRO -->
   <section class="center-col">
     <div class="editor-area">
       <div id="tabBar" class="tabbar"></div>
       <div class="etoolbar">
         <span id="activeFileLbl">Dosya seçilmedi</span>
+        <span id="cursorStatus" style="font-size:11px;color:#64748b"></span>
         <div style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap">
+          <button class="sm" onclick="toggleFindBar(true)" title="Dosya içi bul / değiştir (Ctrl+F)">Bul (Ctrl+F)</button>
           <button class="sm primary" onclick="saveActiveFile()">Kaydet (Ctrl+S)</button>
           <button class="sm" onclick="askAiAboutFile('Bu dosyadaki olasi buglari ve iyilestirmeleri bul:')">Bug Bul</button>
           <button class="sm" onclick="askAiAboutFile('Bu dosya icin temiz bir refactor onerisi ve tam kodu ver:')">Refactor</button>
           <button class="sm" onclick="askAiAboutFile('Bu dosya icin unittest birim testleri yaz:')">Test Yaz</button>
-          <button class="sm" onclick="closeMediaViewer()">Editöre Dön</button>
+          <button class="sm" onclick="closeCenterOverlays()">Editöre Dön</button>
         </div>
+      </div>
+      <div id="findBar" class="find-bar">
+        <input id="findInp" placeholder="Bul..." oninput="updateFindMatches()" onkeydown="onFindKey(event)" />
+        <input id="replaceInp" placeholder="Değiştir..." onkeydown="if(event.key==='Enter')replaceOne()" />
+        <span id="findCount" style="color:var(--mut);font-size:11px;min-width:46px">0/0</span>
+        <button class="sm" onclick="jumpFind(-1)">▲</button>
+        <button class="sm" onclick="jumpFind(1)">▼</button>
+        <button class="sm" onclick="replaceOne()">Değiştir</button>
+        <button class="sm" onclick="replaceAll()">Tümü</button>
+        <button class="sm" onclick="toggleFindBar(false)">×</button>
       </div>
       <div class="code-host">
         <div id="gutter" class="gutter">1</div>
-        <textarea id="codeEditor" spellcheck="false" placeholder="Sol panelden bir dosya açın veya + Yeni ile oluşturun..."></textarea>
+        <div id="codeStage" class="code-stage">
+          <pre id="codeHighlight" class="code-hl" aria-hidden="true"></pre>
+          <textarea id="codeEditor" spellcheck="false" placeholder="Sol panelden bir dosya açın, Ctrl+P ile hızlı açın veya + Yeni ile oluşturun..."></textarea>
+        </div>
+        <div id="diffViewer"></div>
         <div id="mediaViewer"></div>
       </div>
     </div>
@@ -260,11 +358,13 @@ IDE_HTML = r"""<!doctype html>
       </div>
       <div class="chat-ctrl">
         <div class="chat-opts">
-          <label><input type="checkbox" id="chkIncludeFile" checked /> Proje + açık dosya</label>
-          <select id="agentMode" title="Proje Ajanı dosya okuyup yazabilir; Hızlı mod anında yanıtlar">
-            <option value="fast" selected>Hızlı (Proje Bağlamlı)</option>
-            <option value="agent">Ajan (Dosya Oku/Yaz + Araçlar)</option>
+          <label><input type="checkbox" id="chkIncludeFile" checked /> Proje + dosya</label>
+          <select id="agentMode" title="Hızlı anında yanıtlar; Planla+Onayla önce plan çıkarır; Ajan doğrudan dosya okuyup yazar">
+            <option value="fast">Hızlı (Proje Bağlamlı)</option>
+            <option value="plan">Planla + Onayla (Çok Dosyalı)</option>
+            <option value="agent" selected>Ajan v2 (Dosya + Araçlar)</option>
           </select>
+          <label title="Ajan dosya düzenledikten sonra proje testlerini otomatik koşar; hata çıkarsa kendi düzeltir"><input type="checkbox" id="chkAutoVerify" checked /> Oto-Test</label>
           <label style="cursor:pointer"><span class="pill">+ Görsel</span><input id="chatImg" type="file" accept="image/*" style="display:none" onchange="onChatImg(event)" /></label>
           <span id="chatImgTag" style="display:none" class="pill ok">Görsel eklendi</span>
           <button class="sm" style="margin-left:auto" onclick="clearChat()">Temizle</button>
@@ -322,6 +422,14 @@ IDE_HTML = r"""<!doctype html>
   </section>
 </div>
 
+<!-- QUICK OPEN MODAL (Ctrl+P) -->
+<div id="quickOpenBackdrop" class="qo-backdrop" onclick="if(event.target===this)closeQuickOpen()">
+  <div class="qo-modal">
+    <input id="quickOpenInp" placeholder="Dosya adına göre hızlı aç (Ctrl+P)..." oninput="renderQuickOpen()" onkeydown="onQuickOpenKey(event)" />
+    <div id="quickOpenList" class="qo-list"></div>
+  </div>
+</div>
+
 <script>
 const openTabs = {}; // path -> {content, saved}
 let activeTab = null;
@@ -330,34 +438,456 @@ let chatImgData = null;
 let lastStatus = null;
 let codeBlockStore = {};
 let agentAbortCtrl = null;
+let allWorkspaceFiles = [];
 const collapsedDirs = new Set();
 
 const editor = document.getElementById('codeEditor');
 const gutter = document.getElementById('gutter');
+const codeHL = document.getElementById('codeHighlight');
+const codeStage = document.getElementById('codeStage');
 
 function escHtml(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+/* ========== CODE EDITOR PRO (Syntax Highlight, Auto-Indent/Pairs, Ctrl+F/H, Ctrl+P) ========== */
+let findMatches = [];
+let findIdx = -1;
+const PAIRS = {'(':')','[':']','{':'}','"':'"',"'":"'"};
+
+function detectLang(path){
+  const ext = (path||'').split('.').pop().toLowerCase();
+  if(ext==='py') return 'python';
+  if(['js','mjs','cjs','ts','tsx','jsx'].includes(ext)) return 'js';
+  if(ext==='json') return 'json';
+  if(['html','htm','xml','svg'].includes(ext)) return 'html';
+  if(ext==='css') return 'css';
+  if(['ps1','sh','bash','cmd','bat'].includes(ext)) return 'shell';
+  if(ext==='md') return 'md';
+  return 'plain';
+}
+
+function highlightCode(src, path){
+  const lang = detectLang(path);
+  let re;
+  if(lang==='python'){
+    re = /(#[^\n]*|"{3}[\s\S]*?"{3}|'{3}[\s\S]*?'{3}|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|@[A-Za-z_]\w*|\b(?:def|class|import|from|return|if|elif|else|for|while|try|except|finally|with|as|yield|async|await|lambda|pass|break|continue|raise|in|not|and|or|is|None|True|False|global|nonlocal|assert|del)\b|\b\d+(?:\.\d+)?\b)/g;
+  }else if(lang==='js'){
+    re = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\b(?:const|let|var|function|class|return|if|else|for|while|switch|case|break|continue|try|catch|finally|throw|async|await|import|export|from|default|new|this|typeof|instanceof|type|interface|extends|implements|true|false|null|undefined|void)\b|\b\d+(?:\.\d+)?\b)/g;
+  }else if(lang==='json'){
+    re = /("(?:\\.|[^"\\\n])*"\s*:|"(?:\\.|[^"\\\n])*"|\b(?:true|false|null)\b|-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)/g;
+  }else if(lang==='html'){
+    re = /(<!--[\s\S]*?-->|<\/?[A-Za-z][A-Za-z0-9-]*|\s[A-Za-z-:]+(?==)|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')/g;
+  }else if(lang==='css'){
+    re = /(\/\*[\s\S]*?\*\/|@[a-z-]+|\.[A-Za-z_-][\w-]*|#[0-9a-fA-F]{3,8}\b|[a-z-]+(?=\s*:)|"(?:\\.|[^"\\\n])*"|\b\d+(?:\.\d+)?(?:px|rem|em|vh|vw|%|s|ms)?\b)/g;
+  }else if(lang==='shell'){
+    re = /(#[^\n]*|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\$[A-Za-z_]\w*|\b(?:if|else|elseif|for|foreach|while|function|return|try|catch|Set-Location|Get-ChildItem|Where-Object|ForEach-Object|echo|cd|exit)\b)/g;
+  }else if(lang==='md'){
+    re = /(^#{1,6}\s[^\n]*|`[^`\n]+`|\*\*[^*\n]+\*\*)/gm;
+  }else{
+    return escHtml(src);
+  }
+  let out = ''; let last = 0; let m;
+  while((m = re.exec(src)) !== null){
+    if(m.index > last) out += escHtml(src.slice(last, m.index));
+    const t = m[0];
+    let cls = '';
+    if((lang==='python'||lang==='shell') && t.startsWith('#')) cls='tok-com';
+    else if((lang==='js'||lang==='css') && (t.startsWith('//')||t.startsWith('/*'))) cls='tok-com';
+    else if(lang==='html' && t.startsWith('<!--')) cls='tok-com';
+    else if(lang==='json' && t.endsWith(':')) cls='tok-key';
+    else if(t.startsWith('"')||t.startsWith("'")||t.startsWith('`')) cls='tok-str';
+    else if(t.startsWith('@')) cls='tok-dec';
+    else if(t.startsWith('$')) cls='tok-var';
+    else if(lang==='html' && t.startsWith('<')) cls='tok-tag';
+    else if(lang==='html' && t.startsWith(' ')) cls='tok-key';
+    else if(lang==='md' && t.startsWith('#')) cls='tok-fn';
+    else if(lang==='md' && t.startsWith('`')) cls='tok-str';
+    else if(/^-?\d/.test(t)) cls='tok-num';
+    else if(lang==='css' && t.startsWith('.')) cls='tok-fn';
+    else if(lang==='css' && t.startsWith('#')) cls='tok-num';
+    else if(lang==='css' && /^[a-z-]+$/.test(t)) cls='tok-key';
+    else cls='tok-kw';
+    out += cls ? `<span class="${cls}">${escHtml(t)}</span>` : escHtml(t);
+    last = re.lastIndex;
+  }
+  if(last < src.length) out += escHtml(src.slice(last));
+  return out;
+}
+
+function applyFindMarks(raw, q){
+  if(!q) return highlightCode(raw, activeTab);
+  const ql = q.toLowerCase(), rl = raw.toLowerCase();
+  let html = ''; let pos = 0; let idx = 0;
+  while(true){
+    const hit = rl.indexOf(ql, pos);
+    if(hit === -1){ html += highlightCode(raw.slice(pos), activeTab); break; }
+    html += highlightCode(raw.slice(pos, hit), activeTab);
+    const curCls = (idx === findIdx) ? ' cur' : '';
+    html += `<mark class="hl-match${curCls}">${escHtml(raw.slice(hit, hit + q.length))}</mark>`;
+    pos = hit + q.length; idx++;
+  }
+  return html;
+}
+
+function renderHighlight(){
+  const val = editor.value || '';
+  const q = (document.getElementById('findBar').style.display === 'flex') ? document.getElementById('findInp').value : '';
+  codeHL.innerHTML = (q ? applyFindMarks(val, q) : highlightCode(val, activeTab)) + '\n';
+  codeHL.scrollTop = editor.scrollTop;
+  codeHL.scrollLeft = editor.scrollLeft;
+}
+
+function updateCursorStatus(){
+  const pos = editor.selectionStart || 0;
+  const before = editor.value.slice(0, pos);
+  const lines = before.split('\n');
+  const ln = lines.length, col = lines[lines.length - 1].length + 1;
+  const lang = detectLang(activeTab);
+  document.getElementById('cursorStatus').textContent = activeTab ? `Sat ${ln}, Süt ${col} · ${lang.toUpperCase()}` : '';
+}
 
 function updateGutter(){
   const n = Math.max(1, editor.value.split('\n').length);
   let s=''; for(let i=1;i<=n;i++) s += i+'\n';
   gutter.textContent = s;
   gutter.scrollTop = editor.scrollTop;
+  renderHighlight();
+  updateCursorStatus();
 }
+
 editor.addEventListener('input', ()=>{
   if(activeTab && openTabs[activeTab]){ openTabs[activeTab].content = editor.value; renderTabs(); }
   updateGutter();
+  if(document.getElementById('findBar').style.display === 'flex') updateFindMatches(false);
 });
-editor.addEventListener('scroll', ()=>{ gutter.scrollTop = editor.scrollTop; });
+editor.addEventListener('scroll', ()=>{
+  gutter.scrollTop = editor.scrollTop;
+  codeHL.scrollTop = editor.scrollTop;
+  codeHL.scrollLeft = editor.scrollLeft;
+});
+editor.addEventListener('click', updateCursorStatus);
+editor.addEventListener('keyup', updateCursorStatus);
+
 editor.addEventListener('keydown', e=>{
-  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); saveActiveFile(); }
+  const s = editor.selectionStart, end = editor.selectionEnd, val = editor.value;
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); saveActiveFile(); return; }
+  if((e.ctrlKey||e.metaKey) && (e.key.toLowerCase()==='f' || e.key.toLowerCase()==='h')){
+    e.preventDefault(); toggleFindBar(true); return;
+  }
+  if((e.ctrlKey||e.metaKey) && e.key==='/'){
+    e.preventDefault();
+    const pref = (detectLang(activeTab)==='python'||detectLang(activeTab)==='shell') ? '# ' : '// ';
+    const lineStart = val.lastIndexOf('\n', s - 1) + 1;
+    const lineEnd = val.indexOf('\n', end);
+    const blkEnd = lineEnd === -1 ? val.length : lineEnd;
+    const lines = val.slice(lineStart, blkEnd).split('\n');
+    const allCom = lines.every(l => !l.trim() || l.trimStart().startsWith(pref.trim()));
+    const next = lines.map(l => {
+      if(!l.trim()) return l;
+      if(allCom) return l.replace(new RegExp('^(\\s*)'+pref.trim().replace('/','\\/')+'\\s?'), '$1');
+      return l.replace(/^(\s*)/, '$1' + pref);
+    }).join('\n');
+    editor.value = val.slice(0, lineStart) + next + val.slice(blkEnd);
+    editor.selectionStart = lineStart; editor.selectionEnd = lineStart + next.length;
+    editor.dispatchEvent(new Event('input'));
+    return;
+  }
   if(e.key==='Tab'){
     e.preventDefault();
-    const s=editor.selectionStart, end=editor.selectionEnd;
-    editor.value = editor.value.slice(0,s)+'    '+editor.value.slice(end);
-    editor.selectionStart = editor.selectionEnd = s+4;
+    if(e.shiftKey){
+      const lineStart = val.lastIndexOf('\n', s - 1) + 1;
+      const lineEnd = val.indexOf('\n', end);
+      const blkEnd = lineEnd === -1 ? val.length : lineEnd;
+      const next = val.slice(lineStart, blkEnd).split('\n').map(l => l.replace(/^ {1,4}|\t/, '')).join('\n');
+      editor.value = val.slice(0, lineStart) + next + val.slice(blkEnd);
+      editor.selectionStart = lineStart; editor.selectionEnd = lineStart + next.length;
+    }else if(s !== end && val.slice(s, end).includes('\n')){
+      const lineStart = val.lastIndexOf('\n', s - 1) + 1;
+      const lineEnd = val.indexOf('\n', end);
+      const blkEnd = lineEnd === -1 ? val.length : lineEnd;
+      const next = val.slice(lineStart, blkEnd).split('\n').map(l => '    ' + l).join('\n');
+      editor.value = val.slice(0, lineStart) + next + val.slice(blkEnd);
+      editor.selectionStart = lineStart; editor.selectionEnd = lineStart + next.length;
+    }else{
+      editor.value = val.slice(0, s) + '    ' + val.slice(end);
+      editor.selectionStart = editor.selectionEnd = s + 4;
+    }
+    editor.dispatchEvent(new Event('input'));
+    return;
+  }
+  if(e.key==='Enter'){
+    e.preventDefault();
+    const lineStart = val.lastIndexOf('\n', s - 1) + 1;
+    const curLine = val.slice(lineStart, s);
+    const indent = (curLine.match(/^\s*/) || [''])[0];
+    const trimmed = curLine.trimEnd();
+    const extra = /[:{(\[]$/.test(trimmed) ? '    ' : '';
+    const nextCh = val[end] || '';
+    const prevCh = val[s - 1] || '';
+    if((prevCh==='{'&&nextCh==='}') || (prevCh==='['&&nextCh===']') || (prevCh==='('&&nextCh===')')){
+      const ins = '\n' + indent + '    \n' + indent;
+      editor.value = val.slice(0, s) + ins + val.slice(end);
+      editor.selectionStart = editor.selectionEnd = s + 1 + indent.length + 4;
+    }else{
+      const ins = '\n' + indent + extra;
+      editor.value = val.slice(0, s) + ins + val.slice(end);
+      editor.selectionStart = editor.selectionEnd = s + ins.length;
+    }
+    editor.dispatchEvent(new Event('input'));
+    return;
+  }
+  if(e.key==='Backspace' && s===end && s>0 && PAIRS[val[s-1]]===val[s]){
+    e.preventDefault();
+    editor.value = val.slice(0, s - 1) + val.slice(s + 1);
+    editor.selectionStart = editor.selectionEnd = s - 1;
+    editor.dispatchEvent(new Event('input'));
+    return;
+  }
+  if(Object.values(PAIRS).includes(e.key) && s===end && val[s]===e.key && !['"',"'"].includes(e.key)){
+    e.preventDefault();
+    editor.selectionStart = editor.selectionEnd = s + 1;
+    return;
+  }
+  if(PAIRS[e.key] && !e.ctrlKey && !e.altKey && !e.metaKey){
+    const closeCh = PAIRS[e.key];
+    if((e.key==='"' || e.key==="'") && s===end && val[s]===e.key){
+      e.preventDefault(); editor.selectionStart = editor.selectionEnd = s + 1; return;
+    }
+    e.preventDefault();
+    const sel = val.slice(s, end);
+    editor.value = val.slice(0, s) + e.key + sel + closeCh + val.slice(end);
+    editor.selectionStart = s + 1;
+    editor.selectionEnd = end + 1;
     editor.dispatchEvent(new Event('input'));
   }
 });
+
+/* Global Shortcuts: Ctrl+P Quick Open, Ctrl+F Find */
+window.addEventListener('keydown', e=>{
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='p'){
+    e.preventDefault(); openQuickOpen();
+  }else if(e.key==='Escape'){
+    if(document.getElementById('quickOpenBackdrop').style.display==='flex') closeQuickOpen();
+    else if(document.getElementById('findBar').style.display==='flex') toggleFindBar(false);
+  }
+});
+
+/* In-File Find & Replace */
+function toggleFindBar(show){
+  const bar = document.getElementById('findBar');
+  bar.style.display = show ? 'flex' : 'none';
+  if(show){
+    const inp = document.getElementById('findInp');
+    const sel = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+    if(sel && !sel.includes('\n')) inp.value = sel;
+    inp.focus(); inp.select();
+    updateFindMatches(true);
+  }else{
+    findMatches = []; findIdx = -1; renderHighlight(); editor.focus();
+  }
+}
+function updateFindMatches(jumpFirst=true){
+  const q = document.getElementById('findInp').value;
+  findMatches = [];
+  if(q){
+    const ql = q.toLowerCase(), txt = editor.value.toLowerCase();
+    let pos = 0;
+    while(true){
+      const idx = txt.indexOf(ql, pos);
+      if(idx === -1) break;
+      findMatches.push({start: idx, end: idx + q.length});
+      pos = idx + q.length;
+    }
+  }
+  findIdx = findMatches.length ? (jumpFirst ? 0 : Math.min(Math.max(0, findIdx), findMatches.length - 1)) : -1;
+  document.getElementById('findCount').textContent = findMatches.length ? `${findIdx+1}/${findMatches.length}` : '0/0';
+  renderHighlight();
+  if(jumpFirst && findIdx >= 0) scrollEditorToPos(findMatches[findIdx].start);
+}
+function scrollEditorToPos(pos){
+  const lnIdx = editor.value.slice(0, pos).split('\n').length - 1;
+  editor.scrollTop = Math.max(0, lnIdx * 19.5 - editor.clientHeight / 3);
+  gutter.scrollTop = editor.scrollTop; codeHL.scrollTop = editor.scrollTop;
+}
+function jumpFind(delta){
+  if(!findMatches.length) return;
+  findIdx = (findIdx + delta + findMatches.length) % findMatches.length;
+  document.getElementById('findCount').textContent = `${findIdx+1}/${findMatches.length}`;
+  const m = findMatches[findIdx];
+  scrollEditorToPos(m.start);
+  editor.setSelectionRange(m.start, m.end);
+  renderHighlight();
+}
+function onFindKey(ev){
+  if(ev.key==='Enter'){ ev.preventDefault(); jumpFind(ev.shiftKey ? -1 : 1); }
+  else if(ev.key==='Escape'){ toggleFindBar(false); }
+}
+function replaceOne(){
+  if(findIdx < 0 || !findMatches[findIdx]) return;
+  const rep = document.getElementById('replaceInp').value;
+  const m = findMatches[findIdx];
+  editor.value = editor.value.slice(0, m.start) + rep + editor.value.slice(m.end);
+  editor.dispatchEvent(new Event('input'));
+  updateFindMatches(false);
+}
+function replaceAll(){
+  const q = document.getElementById('findInp').value;
+  if(!q) return;
+  const rep = document.getElementById('replaceInp').value;
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  editor.value = editor.value.replace(re, rep);
+  editor.dispatchEvent(new Event('input'));
+  updateFindMatches(false);
+}
+
+/* Quick Open Ctrl+P Modal */
+let qoItems = []; let qoSel = 0;
+function openQuickOpen(){
+  document.getElementById('quickOpenBackdrop').style.display = 'flex';
+  const inp = document.getElementById('quickOpenInp');
+  inp.value = ''; inp.focus();
+  qoSel = 0; renderQuickOpen();
+}
+function closeQuickOpen(){ document.getElementById('quickOpenBackdrop').style.display = 'none'; }
+function fuzzyScore(text, query){
+  if(!query) return 1;
+  const t = text.toLowerCase(), q = query.toLowerCase();
+  if(t.includes(q)) return 100 - t.indexOf(q) * 0.1;
+  let ti = 0, score = 0;
+  for(const ch of q){
+    const f = t.indexOf(ch, ti);
+    if(f === -1) return -1;
+    score += (f === ti ? 3 : 1);
+    ti = f + 1;
+  }
+  return score;
+}
+function renderQuickOpen(){
+  const q = document.getElementById('quickOpenInp').value.trim();
+  qoItems = allWorkspaceFiles
+    .map(p => ({path: p, score: fuzzyScore(p, q)}))
+    .filter(x => x.score >= 0)
+    .sort((a,b) => b.score - a.score)
+    .slice(0, 30);
+  if(qoSel >= qoItems.length) qoSel = 0;
+  const list = document.getElementById('quickOpenList');
+  list.innerHTML = qoItems.length ? qoItems.map((it, i)=>{
+    const parts = it.path.split('/');
+    const name = parts.pop(); const dir = parts.join('/');
+    return `<div class="qo-item${i===qoSel?' sel':''}" onclick="closeQuickOpen();openFile('${escHtml(it.path)}')"><span>${escHtml(name)}</span><span class="qo-dir">${escHtml(dir)}</span></div>`;
+  }).join('') : '<div style="padding:12px 14px;color:var(--mut);font-size:12px">Eşleşen dosya yok.</div>';
+}
+function onQuickOpenKey(ev){
+  if(ev.key==='ArrowDown'){ ev.preventDefault(); qoSel = Math.min(qoItems.length - 1, qoSel + 1); renderQuickOpen(); }
+  else if(ev.key==='ArrowUp'){ ev.preventDefault(); qoSel = Math.max(0, qoSel - 1); renderQuickOpen(); }
+  else if(ev.key==='Enter' && qoItems[qoSel]){ ev.preventDefault(); const p = qoItems[qoSel].path; closeQuickOpen(); openFile(p); }
+  else if(ev.key==='Escape'){ closeQuickOpen(); }
+}
+
+/* ========== GIT & VISUAL DIFF PANEL ========== */
+function switchLeftTab(tab){
+  document.getElementById('leftFiles').style.display = tab==='files' ? 'flex' : 'none';
+  document.getElementById('leftGit').style.display = tab==='git' ? 'flex' : 'none';
+  document.getElementById('ltabFiles').className = 'ltab' + (tab==='files' ? ' active' : '');
+  document.getElementById('ltabGit').className = 'ltab' + (tab==='git' ? ' active' : '');
+  if(tab==='git') loadGitStatus(true);
+}
+
+async function loadGitStatus(renderList=false){
+  try{
+    const st = await fetch('/api/git/status').then(x=>x.json());
+    const badge = document.getElementById('gitBadge');
+    if(st.is_repo && st.total_changes > 0){
+      badge.style.display = 'inline-block'; badge.textContent = st.total_changes;
+    }else{
+      badge.style.display = 'none';
+    }
+    if(!renderList && document.getElementById('leftGit').style.display !== 'flex') return;
+    const hdr = document.getElementById('gitBranchLbl');
+    const box = document.getElementById('gitScroll');
+    if(!st.is_repo){
+      hdr.textContent = '⎇ Git Yok';
+      box.innerHTML = '<div style="padding:12px;color:var(--mut);font-size:12px">Bu proje henüz bir Git reposu değil.</div>';
+      return;
+    }
+    const ab = (st.ahead?` ↑${st.ahead}`:'') + (st.behind?` ↓${st.behind}`:'');
+    hdr.textContent = `⎇ ${st.branch}${ab}`;
+    let html = '';
+    if(st.staged.length){
+      html += `<div class="git-sec"><span>Hazır / Staged (${st.staged.length})</span><button class="sm" onclick="gitUnstage('')">- Tümü</button></div>`;
+      html += st.staged.map(f=>`<div class="gfile" onclick="openGitDiff('${escHtml(f.path)}',true)"><span class="gcode A">${escHtml(f.code)}</span><span class="gp" title="${escHtml(f.path)}">${escHtml(f.path)}</span><button class="sm" title="Unstage" onclick="event.stopPropagation();gitUnstage('${escHtml(f.path)}')">-</button></div>`).join('');
+    }
+    const chg = [...st.unstaged, ...st.untracked];
+    html += `<div class="git-sec"><span>Değişenler (${chg.length})</span></div>`;
+    if(chg.length){
+      html += chg.map(f=>{
+        const cls = f.code==='??'?'U':(f.code==='D'?'D':'M');
+        return `<div class="gfile" onclick="openGitDiff('${escHtml(f.path)}',false)"><span class="gcode ${cls}">${escHtml(f.code)}</span><span class="gp" title="${escHtml(f.path)}">${escHtml(f.path)}</span><button class="sm" title="Stage" onclick="event.stopPropagation();gitStage('${escHtml(f.path)}')">+</button><button class="sm danger" title="Geri Al (Revert)" onclick="event.stopPropagation();gitRevert('${escHtml(f.path)}')">↺</button></div>`;
+      }).join('');
+    }else{
+      html += '<div style="padding:6px 10px;color:var(--mut);font-size:11.5px">Çalışma dizini temiz ✓</div>';
+    }
+    const logs = await fetch('/api/git/log').then(x=>x.json()).catch(()=>[]);
+    if(logs && logs.length){
+      html += `<div class="git-sec" style="margin-top:8px"><span>Son Commitler</span></div>`;
+      html += logs.slice(0, 8).map(l=>`<div class="glog"><b>${escHtml(l.hash)}</b> ${escHtml(l.subject)}<div style="font-size:10px;opacity:.75">${escHtml(l.author)} · ${escHtml(l.when)}</div></div>`).join('');
+    }
+    box.innerHTML = html;
+  }catch(e){}
+}
+
+async function openGitDiff(path, staged){
+  const r = await fetch(`/api/git/diff?path=${encodeURIComponent(path)}&staged=${staged?1:0}`).then(x=>x.json());
+  const dv = document.getElementById('diffViewer');
+  document.getElementById('mediaViewer').style.display = 'none';
+  codeStage.style.display = 'none'; gutter.style.display = 'none';
+  dv.style.display = 'flex';
+  const actBtn = path
+    ? (staged
+      ? `<button class="sm" onclick="gitUnstage('${escHtml(path)}').then(()=>openGitDiff('${escHtml(path)}',false))">Unstage</button>`
+      : `<button class="sm primary" onclick="gitStage('${escHtml(path)}').then(()=>openGitDiff('${escHtml(path)}',true))">Stage (+)</button>`)
+      + `<button class="sm" onclick="openFile('${escHtml(path)}')">Dosyayı Aç</button>`
+    : '';
+  const bodyHtml = (r.lines && r.lines.length)
+    ? r.lines.map(ln=>`<div class="dln ${ln.type}">${escHtml(ln.text)||' '}</div>`).join('')
+    : '<div style="padding:16px;color:var(--mut)">Gösterilecek fark yok.</div>';
+  dv.innerHTML = `<div class="diff-hdr"><b>${escHtml(r.path||path)}</b><span class="pill">${staged?'Staged':'Working Tree'}</span><span style="color:var(--ok);font-weight:700">+${r.added||0}</span><span style="color:var(--err);font-weight:700">-${r.removed||0}</span><div style="margin-left:auto;display:flex;gap:5px">${actBtn}<button class="sm" onclick="closeCenterOverlays()">Editöre Dön</button></div></div><div class="diff-body">${bodyHtml}</div>`;
+}
+async function gitStage(path){ await fetch('/api/git/stage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})}); await loadGitStatus(true); }
+async function gitStageAll(){ await fetch('/api/git/stage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:''})}); await loadGitStatus(true); }
+async function gitUnstage(path){ await fetch('/api/git/unstage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})}); await loadGitStatus(true); }
+async function gitRevert(path){
+  if(!confirm(path + ' dosyasındaki değişiklikleri geri almak istiyor musunuz?')) return;
+  const r = await fetch('/api/git/revert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+  if(r.ok){
+    if(openTabs[path]){ delete openTabs[path]; openFile(path); }
+    loadTree(); loadGitStatus(true);
+  }
+}
+async function gitCommit(){
+  const inp = document.getElementById('gitCommitMsg');
+  const msg = inp.value.trim();
+  if(!msg){ alert('Önce bir commit mesajı yazın.'); return; }
+  const r = await fetch('/api/git/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+  const j = await r.json();
+  if(r.ok && j.ok){ inp.value = ''; await loadGitStatus(true); }
+  else alert(j.error || 'Commit başarısız (önce dosyaları + ile stage edin).');
+}
+async function gitAiMessage(){
+  const btn = document.getElementById('gitAiBtn');
+  btn.disabled = true; btn.textContent = '...';
+  try{
+    const r = await fetch('/api/git/ai-message',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const j = await r.json();
+    if(r.ok && j.message) document.getElementById('gitCommitMsg').value = j.message;
+    else alert(j.error || 'Commit mesajı üretilemedi.');
+  }finally{ btn.disabled = false; btn.textContent = '✨ AI'; }
+}
+function closeCenterOverlays(){
+  document.getElementById('mediaViewer').style.display = 'none';
+  document.getElementById('diffViewer').style.display = 'none';
+  codeStage.style.display = 'block'; gutter.style.display = 'block';
+  renderHighlight();
+}
 
 async function loadProjects(){
   const r = await fetch('/api/workspace/projects').then(x=>x.json());
@@ -376,7 +906,7 @@ async function switchProject(path){
   for(const k of Object.keys(openTabs)) delete openTabs[k];
   activeTab = null; editor.value = ''; updateGutter(); renderTabs();
   document.getElementById('activeFileLbl').textContent = 'Dosya seçilmedi';
-  loadTree(); pollTerminal();
+  closeCenterOverlays(); loadTree(); pollTerminal(); loadGitStatus(true);
 }
 
 async function loadCodingModels(){
@@ -407,6 +937,7 @@ async function switchCodingModel(modelId){
 
 async function loadTree(){
   const r = await fetch('/api/workspace/tree').then(x=>x.json());
+  allWorkspaceFiles = (r.items||[]).filter(x=>x.kind==='file').map(x=>x.path);
   const box = document.getElementById('fileTree');
   box.innerHTML = '';
   for(const it of r.items){
@@ -438,7 +969,7 @@ async function deleteWorkspaceFile(path){
 }
 
 async function openFile(path){
-  closeMediaViewer();
+  closeCenterOverlays();
   if(!openTabs[path]){
     const r = await fetch('/api/workspace/file?path='+encodeURIComponent(path));
     const j = await r.json();
@@ -482,7 +1013,7 @@ async function saveActiveFile(){
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({path:activeTab, content:openTabs[activeTab].content})
   });
-  if(r.ok){ openTabs[activeTab].saved = openTabs[activeTab].content; renderTabs(); }
+  if(r.ok){ openTabs[activeTab].saved = openTabs[activeTab].content; renderTabs(); loadGitStatus(false); }
 }
 
 async function newProjectPrompt(){
@@ -497,7 +1028,7 @@ async function newProjectPrompt(){
   for(const k of Object.keys(openTabs)) delete openTabs[k];
   activeTab = null; editor.value = ''; updateGutter(); renderTabs();
   document.getElementById('activeFileLbl').textContent = 'Dosya seçilmedi';
-  await loadProjects(); await loadTree(); pollTerminal();
+  await loadProjects(); await loadTree(); pollTerminal(); loadGitStatus(true);
 }
 
 async function newFilePrompt(){
@@ -985,6 +1516,7 @@ async function sendAgent(){
   const abtn = document.getElementById('chatAbortBtn'); abtn.style.display='inline-block';
   agentAbortCtrl = new AbortController();
   const mode = document.getElementById('agentMode').value;
+  const autoVerify = !!document.getElementById('chkAutoVerify')?.checked;
   const activePayload = (document.getElementById('chkIncludeFile').checked && activeTab && openTabs[activeTab])
     ? {path: activeTab, content: openTabs[activeTab].content}
     : null;
@@ -993,7 +1525,7 @@ async function sendAgent(){
     const resp = await fetch('/api/agent/chat',{
       method:'POST',headers:{'Content-Type':'application/json'},
       signal: agentAbortCtrl.signal,
-      body:JSON.stringify({messages: chatHistory, mode, active_file: activePayload})
+      body:JSON.stringify({messages: chatHistory, mode, auto_verify: autoVerify, active_file: activePayload})
     });
     if(!resp.ok){
       const err = await resp.json().catch(()=>({error:resp.statusText}));
@@ -1026,12 +1558,25 @@ async function sendAgent(){
             d.textContent = `↳ ${ev.summary}`;
             toolsEl.appendChild(d);
           }else if(ev.type==='file_changed'){
-            loadTree();
+            loadTree(); loadGitStatus(false);
             if(openTabs[ev.path]){ delete openTabs[ev.path]; openFile(ev.path); }
             const dc = document.createElement('div');
             dc.className = 'code-blk';
             dc.innerHTML = `<div class="code-blk-h"><span>✏ ${escHtml(ev.path)} <b style="color:var(--ok)">+${ev.added||0}</b> <b style="color:var(--err)">-${ev.removed||0}</b></span><div class="row" style="gap:4px"><button class="sm" onclick="openFile('${escHtml(ev.path)}')">Aç</button>${ev.undo_id?`<button class="sm danger" onclick="undoAgentEdit('${escHtml(ev.undo_id)}',this)">Geri Al</button>`:''}</div></div>${ev.diff?`<pre style="max-height:110px;font-size:10.8px">${escHtml(ev.diff)}</pre>`:''}`;
             toolsEl.appendChild(dc);
+          }else if(ev.type==='verify'){
+            const vc = document.createElement('div');
+            vc.className = 'verify-card ' + (ev.passed ? 'ok' : 'fail');
+            const ttl = ev.passed
+              ? `✓ Oto-Test Geçti (Tur ${ev.round||1}) · ${ev.command}`
+              : `✗ Oto-Test Başarısız (exit ${ev.exit_code}) · Ajan düzeltiyor (Tur ${ev.round||1})`;
+            vc.innerHTML = `<div class="vh"><span>${escHtml(ttl)}</span></div>${ev.output?`<pre>${escHtml(ev.output.slice(-900))}</pre>`:''}`;
+            toolsEl.appendChild(vc);
+          }else if(ev.type==='plan_ready'){
+            const pc = document.createElement('div');
+            pc.className = 'plan-card';
+            pc.innerHTML = `<div style="font-size:11.5px;color:var(--acc);font-weight:700">📋 Plan Hazır — Onay Bekliyor</div><div style="font-size:11.5px;color:var(--mut)">Onayladığınızda ajan planı çok dosyalı olarak uygular ve proje testlerini otomatik çalıştırır.</div><div class="row" style="gap:6px"><button class="sm primary" onclick="approvePlanAndRun(this)">✓ Planı Onayla ve Uygula (Oto-Test)</button><button class="sm danger" onclick="this.closest('.plan-card').remove()">İptal</button></div>`;
+            aDiv.appendChild(pc);
           }else if(ev.type==='delta' && ev.content){
             full += ev.content; toks++;
             const sec = (performance.now()-t0)/1000;
@@ -1096,21 +1641,30 @@ async function loadMediaGallery(){
 
 function previewMedia(name, kind){
   const mv = document.getElementById('mediaViewer');
-  editor.style.display='none'; gutter.style.display='none'; mv.style.display='flex';
+  document.getElementById('diffViewer').style.display='none';
+  codeStage.style.display='none'; gutter.style.display='none'; mv.style.display='flex';
   const url = '/api/media/file?name=' + encodeURIComponent(name);
   mv.innerHTML = (kind==='video'
     ? `<video src="${url}" controls autoplay loop></video>`
     : `<img src="${url}" />`)
-    + `<div class="row"><span style="font-size:12px;color:var(--mut)">${escHtml(name)}</span><button class="sm" onclick="closeMediaViewer()">Editöre Dön</button></div>`;
+    + `<div class="row"><span style="font-size:12px;color:var(--mut)">${escHtml(name)}</span><button class="sm" onclick="closeCenterOverlays()">Editöre Dön</button></div>`;
 }
-function closeMediaViewer(){
-  document.getElementById('mediaViewer').style.display='none';
-  editor.style.display='block'; gutter.style.display='block';
+function closeMediaViewer(){ closeCenterOverlays(); }
+
+function approvePlanAndRun(btnEl){
+  const card = btnEl.closest('.plan-card');
+  if(card){ card.innerHTML = '<div style="font-size:11.5px;color:var(--ok);font-weight:700">✓ Plan Onaylandı — Ajan uyguluyor...</div>'; }
+  document.getElementById('agentMode').value = 'agent';
+  const chk = document.getElementById('chkAutoVerify');
+  if(chk) chk.checked = true;
+  document.getElementById('chatInp').value = 'Plan onaylandı. Şimdi tüm değişiklikleri adım adım uygula ve doğrula.';
+  sendAgent();
 }
 
-loadProjects(); loadCodingModels(); loadTree(); pollStatus(); pollTerminal();
+loadProjects(); loadCodingModels(); loadTree(); loadGitStatus(false); pollStatus(); pollTerminal();
 setInterval(pollStatus, 2500);
 setInterval(loadTermSessions, 3500);
+setInterval(()=>loadGitStatus(false), 6000);
 </script>
 </body>
 </html>
@@ -1180,6 +1734,18 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term_mgr: TerminalManager |
                 return
             if path == "/api/workspace/search":
                 self._json({"hits": ws.search(qs.get("q", ""))})
+                return
+            if path == "/api/git/status":
+                self._json(git_ops.get_status(ws))
+                return
+            if path == "/api/git/diff":
+                try:
+                    self._json(git_ops.get_diff(ws, qs.get("path", ""), staged=(qs.get("staged") in ("1", "true", "True"))))
+                except PermissionError as exc:
+                    self._json({"error": str(exc)}, status=403)
+                return
+            if path == "/api/git/log":
+                self._json(git_ops.get_log(ws, limit=int(qs.get("limit", "12") or "12")))
                 return
             if path == "/api/terminal/sessions":
                 self._json({"sessions": term_mgr.list_sessions()})
@@ -1270,6 +1836,70 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term_mgr: TerminalManager |
                     self._json({"ok": True, **res})
                 except Exception as exc:
                     self._json({"error": str(exc)}, status=400)
+                return
+
+            if path == "/api/git/stage":
+                try:
+                    ok, msg = git_ops.stage_path(ws, body.get("path"))
+                    self._json({"ok": ok, "message": msg}, status=200 if ok else 400)
+                except PermissionError as exc:
+                    self._json({"error": str(exc)}, status=403)
+                return
+            if path == "/api/git/unstage":
+                try:
+                    ok, msg = git_ops.unstage_path(ws, body.get("path"))
+                    self._json({"ok": ok, "message": msg}, status=200 if ok else 400)
+                except PermissionError as exc:
+                    self._json({"error": str(exc)}, status=403)
+                return
+            if path == "/api/git/revert":
+                try:
+                    ok, msg = git_ops.revert_path(ws, str(body.get("path") or ""))
+                    self._json({"ok": ok, "message": msg}, status=200 if ok else 400)
+                except PermissionError as exc:
+                    self._json({"error": str(exc)}, status=403)
+                return
+            if path == "/api/git/commit":
+                res = git_ops.commit_changes(ws, str(body.get("message") or ""))
+                self._json(res, status=200 if res.get("ok") else 400)
+                return
+            if path == "/api/git/ai-message":
+                if arbiter.owner == "media":
+                    self._json({"error": "GPU su an Video/Gorsel uretiminde."}, status=409)
+                    return
+                diff_info = git_ops.get_diff(ws, "", staged=True)
+                if not diff_info.get("raw"):
+                    diff_info = git_ops.get_diff(ws, "", staged=False)
+                raw_diff = (diff_info.get("raw") or "")[:3200]
+                if not raw_diff:
+                    self._json({"error": "Diff bos; once bir degisiklik yapin."}, status=400)
+                    return
+                if arbiter.owner != "coding":
+                    ok, msg = arbiter.start_coding(wait_ready=True)
+                    if not ok:
+                        self._json({"error": msg}, status=503)
+                        return
+                payload = {
+                    "model": arbiter.coding_model,
+                    "messages": [
+                        {"role": "system", "content": "Write ONE concise Conventional Commit message line (e.g. 'feat: add syntax highlighting') for the git diff below. Output ONLY the single line, no quotes or markdown."},
+                        {"role": "user", "content": raw_diff},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 60,
+                }
+                req = urllib.request.Request(
+                    f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=90) as resp:
+                        res = json.loads(resp.read().decode("utf-8", errors="replace"))
+                    msg_txt = (res["choices"][0]["message"].get("content") or "").strip().splitlines()[0].strip("`\"' ")
+                    self._json({"message": msg_txt})
+                except Exception as exc:
+                    self._json({"error": str(exc)}, status=502)
                 return
 
             if path == "/api/terminal/sessions":
@@ -1433,14 +2063,19 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term_mgr: TerminalManager |
                         return
 
                 msgs = list(body.get("messages") or [])
-                mode = str(body.get("mode") or "fast")
+                mode = str(body.get("mode") or "agent")
+                auto_verify = bool(body.get("auto_verify", False))
+                test_cmd = body.get("test_cmd")
                 active_file = body.get("active_file")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                 self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
                 try:
-                    for ev in run_agent_stream(arbiter, ws, msgs, active_file=active_file, mode=mode):
+                    for ev in run_agent_stream(
+                        arbiter, ws, msgs, active_file=active_file, mode=mode,
+                        auto_verify=auto_verify, test_cmd=test_cmd,
+                    ):
                         line = f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode("utf-8")
                         self.wfile.write(line)
                         self.wfile.flush()
@@ -1482,7 +2117,7 @@ def run_ide(
     httpd = PicoStudioHTTPServer((h, p), make_handler(arbiter, ws, term_mgr))
     url = f"http://{h}:{p}/"
     print("============================================================")
-    print(f"  PicoStudio Local IDE v0.3.0 -> {url}")
+    print(f"  PicoStudio Local IDE v0.4.0 -> {url}")
     print(f"  Aktif Proje                 -> {ws.root}")
     print(f"  Kodlama Motoru              -> {arbiter.picocode_dir}")
     print(f"  Video/Gorsel Motoru         -> {arbiter.picovid_dir}")

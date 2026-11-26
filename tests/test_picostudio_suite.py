@@ -29,7 +29,8 @@ STUDIO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(STUDIO_ROOT) not in sys.path:
     sys.path.insert(0, str(STUDIO_ROOT))
 
-from picostudio.agent import execute_tool
+from picostudio import git_ops
+from picostudio.agent import detect_test_command, execute_tool, run_agent_stream, run_workspace_tests
 from picostudio.arbiter import GPUArbiter, load_config
 from picostudio.cli import build_parser
 from picostudio.terminal import TerminalManager, TerminalSession
@@ -153,8 +154,16 @@ class TestPicoStudioSuite(unittest.TestCase):
                     html = r.read().decode("utf-8")
                     self.assertEqual(r.status, 200)
                     self.assertIn("PicoStudio IDE", html)
-                    self.assertIn("Inkling 2", html)
-                    self.assertIn("Wan 2.2", html)
+                    self.assertIn("v0.4.0", html)
+                    self.assertIn("codeHighlight", html)
+                    self.assertIn("findBar", html)
+                    self.assertIn("quickOpenBackdrop", html)
+                    self.assertIn("diffViewer", html)
+                    self.assertIn("approvePlanAndRun", html)
+
+                with urllib.request.urlopen(f"{base}/api/git/status", timeout=5) as r:
+                    gst = json.loads(r.read().decode("utf-8"))
+                    self.assertIn("is_repo", gst)
 
                 with urllib.request.urlopen(f"{base}/api/status", timeout=5) as r:
                     st = json.loads(r.read().decode("utf-8"))
@@ -252,6 +261,126 @@ class TestPicoStudioSuite(unittest.TestCase):
                 term.stop_all()
                 srv.shutdown()
                 srv.server_close()
+
+    def test_06_git_ops_status_diff_stage_revert_commit(self) -> None:
+        import subprocess
+        with tempfile.TemporaryDirectory() as td:
+            ws = Workspace(td)
+            self.assertFalse(git_ops.is_git_repo(ws))
+            subprocess.run(["git", "init"], cwd=td, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@picostudio.local"], cwd=td, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "PicoTester"], cwd=td, check=True, capture_output=True)
+
+            ws.write_file("calc.py", "def add(a, b):\n    return a + b\n")
+            st = git_ops.get_status(ws)
+            self.assertTrue(st["is_repo"])
+            self.assertEqual(len(st["untracked"]), 1)
+
+            # Untracked diff preview
+            ud = git_ops.get_diff(ws, "calc.py", staged=False)
+            self.assertEqual(ud["added"], 2)
+
+            # Stage & commit
+            ok, _ = git_ops.stage_path(ws, "calc.py")
+            self.assertTrue(ok)
+            cm = git_ops.commit_changes(ws, "feat: add calc")
+            self.assertTrue(cm["ok"])
+            self.assertTrue(cm["hash"])
+            logs = git_ops.get_log(ws)
+            self.assertEqual(logs[0]["subject"], "feat: add calc")
+
+            # Modify -> diff -> stage -> unstage -> revert
+            ws.write_file("calc.py", "def add(a, b):\n    return a + b + 1\n")
+            d1 = git_ops.get_diff(ws, "calc.py", staged=False)
+            self.assertEqual(d1["added"], 1)
+            self.assertEqual(d1["removed"], 1)
+
+            self.assertTrue(git_ops.stage_path(ws, "calc.py")[0])
+            self.assertEqual(len(git_ops.get_status(ws)["staged"]), 1)
+            self.assertTrue(git_ops.unstage_path(ws, "calc.py")[0])
+            self.assertEqual(len(git_ops.get_status(ws)["staged"]), 0)
+
+            self.assertTrue(git_ops.revert_path(ws, "calc.py")[0])
+            self.assertIn("return a + b\n", ws.read_file("calc.py")["content"])
+            with self.assertRaises(PermissionError):
+                git_ops.revert_path(ws, "../../outside.txt")
+
+    def test_07_agent_v2_plan_mode_and_auto_verify_self_heal(self) -> None:
+        from http.server import BaseHTTPRequestHandler
+        with tempfile.TemporaryDirectory() as td:
+            ws = Workspace(td)
+            ws.write_file("mathlib.py", "def mul(a, b):\n    return a + b\n")
+            ws.write_file(
+                "tests/test_math.py",
+                "import unittest\nfrom mathlib import mul\nclass T(unittest.TestCase):\n    def test_mul(self):\n        self.assertEqual(mul(3, 4), 12)\n",
+            )
+            self.assertEqual(detect_test_command(ws), "py -m unittest discover -s tests -v")
+            self.assertFalse(run_workspace_tests(ws)["passed"])
+
+            # Local mock OpenAI SSE server driving:
+            # 1) Plan mode (emits read-only plan)
+            # 2) Self-heal loop (call 1 writes wrong fix -> unittest fails -> call 2 repairs -> unittest passes!)
+            call_counter = {"n": 0}
+
+            class MockLLM(BaseHTTPRequestHandler):
+                def log_message(self, fmt, *args):
+                    pass
+
+                def do_POST(self):
+                    n = int(self.headers.get("Content-Length", "0"))
+                    body = json.loads(self.rfile.read(n).decode("utf-8"))
+                    sys_msg = body["messages"][0]["content"]
+                    call_counter["n"] += 1
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.end_headers()
+
+                    def send_sse(delta_obj):
+                        chunk = f"data: {json.dumps({'choices': [{'delta': delta_obj}]})}\n\n".encode("utf-8")
+                        self.wfile.write(chunk)
+
+                    if "READ-ONLY PLAN MODE" in sys_msg:
+                        send_sse({"content": "1. mathlib.py icindeki mul fonksiyonunu duzelt\n2. unittest calistir"})
+                    else:
+                        idx = call_counter["n"]
+                        if idx == 2:
+                            # First edit (still buggy!)
+                            send_sse({"tool_calls": [{"index": 0, "id": "c1", "function": {"name": "edit_file", "arguments": json.dumps({"path": "mathlib.py", "target": "return a + b", "replacement": "return a - b"})}}]})
+                        elif idx == 3:
+                            send_sse({"content": "İlk değişiklik uygulandı."})
+                        elif idx == 4:
+                            # Self-heal round: sees test failure, applies real fix!
+                            send_sse({"tool_calls": [{"index": 0, "id": "c2", "function": {"name": "edit_file", "arguments": json.dumps({"path": "mathlib.py", "target": "return a - b", "replacement": "return a * b"})}}]})
+                        else:
+                            send_sse({"content": "Hata düzeltildi, testler geçiyor."})
+                    self.wfile.write(b"data: [DONE]\n\n")
+                    self.wfile.flush()
+
+            mock_srv = ThreadingHTTPServer(("127.0.0.1", 0), MockLLM)
+            mock_srv.daemon_threads = True
+            t = threading.Thread(target=mock_srv.serve_forever, daemon=True)
+            t.start()
+            try:
+                arb = GPUArbiter(load_config())
+                arb.llm_host = "127.0.0.1"
+                arb.llm_port = mock_srv.server_address[1]
+                arb.coding_model = "mock-coder"
+
+                # Verify Plan Mode emits plan_ready and modifies 0 files
+                plan_evs = list(run_agent_stream(arb, ws, [{"role": "user", "content": "mul duzelt"}], mode="plan"))
+                self.assertTrue(any(e["type"] == "plan_ready" for e in plan_evs))
+                self.assertFalse(any(e["type"] == "file_changed" for e in plan_evs))
+
+                # Verify Agent Mode + Auto-Verify Self-Heal heals failing test automatically!
+                heal_evs = list(run_agent_stream(arb, ws, [{"role": "user", "content": "mul duzelt"}], mode="agent", auto_verify=True))
+                verifies = [e for e in heal_evs if e["type"] == "verify"]
+                self.assertEqual(len(verifies), 2)
+                self.assertFalse(verifies[0]["passed"])
+                self.assertTrue(verifies[1]["passed"])
+                self.assertIn("return a * b", ws.read_file("mathlib.py")["content"])
+            finally:
+                mock_srv.shutdown()
+                mock_srv.server_close()
 
 
 if __name__ == "__main__":

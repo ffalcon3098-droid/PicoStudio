@@ -1,14 +1,23 @@
-# PicoStudio v0.3.0 — Unified Local IDE, Terminal Pro & Multi-Model AI Studio (Coding + Video + Image)
+# PicoStudio v0.4.0 — Unified Local IDE Pro, Terminal Pro, Git & Multi-Model AI Studio (Coding + Video + Image)
 
 > [Türkçe dokümantasyon için README.tr.md](README.tr.md)
 
-**PicoStudio** unifies your local **Coding Agents (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** and **Video/Image Studio (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** into a single zero-dependency **3-pane Dark Web IDE** (`http://127.0.0.1:7900`), **Terminal Pro**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **6 GB VRAM GPU Arbiter**.
+**PicoStudio** unifies your local **Coding Agents (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** and **Video/Image Studio (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** into a single zero-dependency **3-pane Dark Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Visual Diff**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **6 GB VRAM GPU Arbiter**.
 
 ---
 
 ## Highlights
 
-- **6 GB VRAM GPU Arbiter (`picostudio/arbiter.py`):** Guarantees zero VRAM collisions on 4–6 GB GPUs. Starting Video/Image diffusion automatically unloads the Coding LLM cleanly, streams live logs, and displays the output MP4/PNG inline inside the IDE.
+- **Code Editor Pro (`v0.4.0`):**
+  - Real zero-dependency syntax highlighting (Python, JS/TS/JSX/TSX, JSON, HTML, CSS, PowerShell/Bash, Markdown).
+  - Auto-indent on Enter, auto-closing brackets & quotes (`() [] {} "" ''`), `Shift+Tab` dedent, `Ctrl+/` comment toggle, live cursor line/col/language status.
+  - `Ctrl+F` / `Ctrl+H` in-file Find & Replace with live match highlighting, plus VS Code-style `Ctrl+P` Quick Open fuzzy file palette.
+- **Git & Visual Diff Panel (`v0.4.0`):**
+  - Dedicated left-pane `Git` tab with live changed-file badge, branch & ahead/behind status, and recent commit log.
+  - Visual line-by-line colored Diff Viewer (including untracked file preview), 1-click **Stage (`+`)**, **Unstage (`-`)**, **Revert (`↺`)**, **Commit**, and **✨ AI Commit Message** generator.
+- **Coding Agent v2 (`v0.4.0`):**
+  - **Plan + Approval Mode (`Planla + Onayla`):** Read-only codebase inspection followed by an interactive Plan Approval Card before any file is modified.
+  - **Auto-Test & Self-Heal Loop (`Oto-Test`):** Automatically runs the workspace's test suite (`unittest` / `npm test`) after edits and feeds failures back into the agent to repair automatically.
 - **Terminal Pro (`v0.3.0`):**
   - **Multi-Tab Real-Time SSE Streaming:** Run dev servers in Tab 1 while running tests/git in Tab 2, with independent working directories (`cd`) and zero-lag `EventSource` streaming.
   - **Interactive `stdin`, History & `Tab` Autocomplete:** Automatically switches to `stdin>` mode while a process runs (`y/n` prompts, `input()`), with `↑`/`↓` per-tab command history and live `Tab` path completion.

@@ -1,14 +1,23 @@
-# PicoStudio v0.3.0 — Birleşik Yerel IDE, Terminal Pro & Çoklu AI Stüdyosu (Kod + Video + Görsel)
+# PicoStudio v0.4.0 — Birleşik Yerel IDE Pro, Terminal Pro, Git & Çoklu AI Stüdyosu (Kod + Video + Görsel)
 
 > [For English documentation, see README.md](README.md)
 
-**PicoStudio**, elinizdeki yerel **Kodlama Ajanlarını (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** ve **Video/Görsel Motorlarını (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli karanlık Web IDE** (`http://127.0.0.1:7900`), **Terminal Pro** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
+**PicoStudio**, elinizdeki yerel **Kodlama Ajanlarını (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** ve **Video/Görsel Motorlarını (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli karanlık Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Görsel Diff** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
 
 ---
 
 ## Öne Çıkan Özellikler
 
-- **6 GB VRAM GPU Nöbetçisi (`picostudio/arbiter.py`):** Kodlama ve Video modellerinin 6 GB VRAM'de çakışmasını engeller. Video/Görsel başlattığınızda kodlama modeli otomatik kapanıp VRAM'i boşaltır; çıktı MP4/PNG doğrudan IDE içinde oynatılır.
+- **Kod Editörü Pro (`v0.4.0`):**
+  - Sıfır bağımlılıklı gerçek sözdizimi renklendirme (Python, JS/TS/JSX/TSX, JSON, HTML, CSS, PowerShell/Bash, Markdown).
+  - Enter'da otomatik girinti, otomatik parantez/tırnak tamamlama (`() [] {} "" ''`), `Shift+Tab` girinti azaltma, `Ctrl+/` yorum satırı aç/kapat, canlı satır/sütun/dil göstergesi.
+  - `Ctrl+F` / `Ctrl+H` dosya içi Bul & Değiştir (vurgulu eşleşmelerle) ve VS Code tarzı `Ctrl+P` Hızlı Dosya Açma paleti.
+- **Git & Görsel Diff Paneli (`v0.4.0`):**
+  - Sol panelde canlı değişen dosya sayaçlı `Git` sekmesi, aktif dal (`branch`) ve son commit geçmişi.
+  - Orta panelde satır bazlı renkli görsel Diff görüntüleyici (yeni/izlenmeyen dosyalar dahil), tek tık **Stage (`+`)**, **Unstage (`-`)**, **Geri Al (`↺`)**, **Commit** ve **✨ AI Commit Mesajı** üretici.
+- **Kod Ajanı v2 (`v0.4.0`):**
+  - **Planla + Onayla Modu:** Ajan önce salt-okunur inceleme yapıp çok dosyalı uygulama planı çıkarır; onay kartından sonra uygular.
+  - **Oto-Test + Kendi Düzeltme Döngüsü:** Dosya değişikliklerinden sonra proje testlerini (`unittest` / `npm test`) otomatik koşar; hata çıkarsa izini okuyup kodu kendi düzeltir.
 - **Terminal Pro (`v0.3.0`):**
   - **Çok Sekmeli Canlı SSE Akışı:** Bir sekmede sunucu çalışırken diğer sekmede test veya `git` çalıştırın; her sekmenin bağımsız `cd` dizini ve sıfır gecikmeli `EventSource` canlı log akışı vardır.
   - **İnteraktif `stdin`, Komut Geçmişi & `Tab` Tamamlama:** Komut çalışırken giriş satırı otomatik `stdin>` moduna geçer (`y/n`, `input()` cevapları için), `↑`/`↓` geçmişi ve `Tab` ile dosya/klasör yolu tamamlama sunar.
