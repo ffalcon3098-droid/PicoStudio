@@ -23,6 +23,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from picostudio.agent import run_agent_stream
 from picostudio.arbiter import GPUArbiter, load_config
 from picostudio.terminal import TerminalSession
 from picostudio.workspace import Workspace
@@ -227,10 +228,10 @@ IDE_HTML = r"""<!doctype html>
       </div>
       <div class="chat-ctrl">
         <div class="chat-opts">
-          <label><input type="checkbox" id="chkIncludeFile" checked /> Açık dosyayı ekle</label>
-          <select id="agentMode" title="Hızlı Kod: düşünme beklemesi yok">
-            <option value="fast" selected>Hızlı Kod (Prefill)</option>
-            <option value="think">Derin Analiz (Think)</option>
+          <label><input type="checkbox" id="chkIncludeFile" checked /> Proje + açık dosya</label>
+          <select id="agentMode" title="Proje Ajanı dosya okuyup yazabilir; Hızlı mod anında yanıtlar">
+            <option value="fast" selected>Hızlı (Proje Bağlamlı)</option>
+            <option value="agent">Ajan (Dosya Oku/Yaz + Araçlar)</option>
           </select>
           <label style="cursor:pointer"><span class="pill">+ Görsel</span><input id="chatImg" type="file" accept="image/*" style="display:none" onchange="onChatImg(event)" /></label>
           <span id="chatImgTag" style="display:none" class="pill ok">Görsel eklendi</span>
@@ -532,13 +533,14 @@ function askAiAboutFile(prefix){
 }
 
 function renderAgentMarkdown(txt){
-  const parts = txt.split(/```(\w*)\n?([\s\S]*?)```/g);
+  const parts = txt.split(/```(\w*)\n([\s\S]*?)```/g);
   let html = '';
   for(let i=0;i<parts.length;i+=3){
     html += escHtml(parts[i]||'').replace(/`([^`]+)`/g,'<code style="background:#0f172a;padding:1px 4px;border-radius:3px">$1</code>').replace(/\n/g,'<br>');
     if(i+2 < parts.length){
       const lang = parts[i+1] || 'code';
-      const code = parts[i+2] || '';
+      const code = (parts[i+2] || '').trimEnd();
+      if(!code.trim()) continue;
       const id = 'cb_' + Math.random().toString(36).slice(2,9);
       codeBlockStore[id] = code;
       const isShell = /^(sh|bash|powershell|ps1|cmd)$/i.test(lang);
@@ -573,35 +575,34 @@ async function sendAgent(){
   inp.value = '';
   const feed = document.getElementById('chatFeed');
 
-  let finalPrompt = text;
-  if(document.getElementById('chkIncludeFile').checked && activeTab && openTabs[activeTab]){
-    finalPrompt = `Active file: \`${activeTab}\`\n\`\`\`\n${openTabs[activeTab].content.slice(0,12000)}\n\`\`\`\n\nUser request:\n${text}`;
-  }
-  let uContent = finalPrompt;
+  let uContent = text;
   if(chatImgData){
-    uContent = [{type:'text',text:finalPrompt||'Bu ekran goruntusunu incele.'},{type:'image_url',image_url:{url:chatImgData}}];
+    uContent = [{type:'text',text:text||'Bu ekran goruntusunu incele.'},{type:'image_url',image_url:{url:chatImgData}}];
     chatImgData = null; document.getElementById('chatImg').value=''; document.getElementById('chatImgTag').style.display='none';
   }
   chatHistory.push({role:'user', content:uContent});
 
   const uDiv = document.createElement('div');
   uDiv.className='msg user';
-  uDiv.innerHTML=`<div class="msg-hdr"><span>Sen</span><span>${activeTab?escHtml(activeTab):''}</span></div><div>${escHtml(text)}</div>`;
+  uDiv.innerHTML=`<div class="msg-hdr"><span>Sen</span><span>${activeTab?escHtml(activeTab):'Proje'}</span></div><div>${escHtml(text)}</div>`;
   feed.appendChild(uDiv);
 
   const aDiv = document.createElement('div');
   aDiv.className='msg';
-  aDiv.innerHTML=`<div class="msg-hdr"><span>Inkling 2 Mini</span><span class="st">Hazırlanıyor...</span></div><div class="bd">...</div>`;
+  aDiv.innerHTML=`<div class="msg-hdr"><span>Inkling 2 Mini</span><span class="st">Proje taranıyor...</span></div><div class="tools" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div><div class="bd">...</div>`;
   feed.appendChild(aDiv);
   feed.scrollTop = feed.scrollHeight;
 
   const btn = document.getElementById('chatSendBtn'); btn.disabled=true;
   const mode = document.getElementById('agentMode').value;
+  const activePayload = (document.getElementById('chkIncludeFile').checked && activeTab && openTabs[activeTab])
+    ? {path: activeTab, content: openTabs[activeTab].content}
+    : null;
   let full = ''; let toks = 0; const t0 = performance.now();
   try{
     const resp = await fetch('/api/agent/chat',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({messages: chatHistory, mode})
+      body:JSON.stringify({messages: chatHistory, mode, active_file: activePayload})
     });
     if(!resp.ok){
       const err = await resp.json().catch(()=>({error:resp.statusText}));
@@ -609,6 +610,7 @@ async function sendAgent(){
       return;
     }
     const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf='';
+    const toolsEl = aDiv.querySelector('.tools');
     while(true){
       const {done, value} = await reader.read(); if(done) break;
       buf += dec.decode(value,{stream:true});
@@ -619,11 +621,30 @@ async function sendAgent(){
         if(!ds || ds==='[DONE]') continue;
         try{
           const ev = JSON.parse(ds);
-          const d = ev.choices?.[0]?.delta || {};
-          if(d.content){ full += d.content; toks++; }
-          const sec = (performance.now()-t0)/1000;
-          aDiv.querySelector('.st').textContent = `${toks} tok · ${(toks/Math.max(0.2,sec)).toFixed(1)} t/s`;
-          aDiv.querySelector('.bd').innerHTML = renderAgentMarkdown(full);
+          if(ev.type==='status'){
+            aDiv.querySelector('.st').textContent = ev.text;
+          }else if(ev.type==='tool'){
+            const d = document.createElement('div');
+            d.className = 'pill';
+            d.style.borderRadius = '6px';
+            d.textContent = `⚙ ${ev.name}(${JSON.stringify(ev.args||{}).slice(0,80)})`;
+            toolsEl.appendChild(d);
+          }else if(ev.type==='tool_result'){
+            const d = document.createElement('div');
+            d.style.cssText = 'font-size:11px;color:var(--mut);padding-left:6px';
+            d.textContent = `↳ ${ev.summary}`;
+            toolsEl.appendChild(d);
+          }else if(ev.type==='file_changed'){
+            loadTree();
+            if(openTabs[ev.path]){ delete openTabs[ev.path]; openFile(ev.path); }
+          }else if(ev.type==='delta' && ev.content){
+            full += ev.content; toks++;
+            const sec = (performance.now()-t0)/1000;
+            aDiv.querySelector('.st').textContent = `${toks} tok · ${(toks/Math.max(0.2,sec)).toFixed(1)} t/s`;
+            aDiv.querySelector('.bd').innerHTML = renderAgentMarkdown(full);
+          }else if(ev.type==='error'){
+            aDiv.querySelector('.bd').textContent = 'Hata: ' + ev.error;
+          }
           feed.scrollTop = feed.scrollHeight;
         }catch(e){}
       }
@@ -903,45 +924,22 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term: TerminalSession) -> t
 
                 msgs = list(body.get("messages") or [])
                 mode = str(body.get("mode") or "fast")
-                sys_msg = {
-                    "role": "system",
-                    "content": (
-                        "You are PicoStudio, a local senior software engineering agent inside a Windows IDE. "
-                        "Give concise, accurate, production-grade code in clean fenced code blocks."
-                    ),
-                }
-                full_msgs = [sys_msg] + msgs
-                # Fast mode uses assistant prefill to bypass Inkling 2 Mini's lengthy <think> loop!
-                prefill = "Here is the solution:\n" if mode == "fast" else None
-                if prefill:
-                    full_msgs.append({"role": "assistant", "content": prefill})
-
-                payload = {
-                    "model": arbiter.coding_model,
-                    "messages": full_msgs,
-                    "temperature": 0.3,
-                    "max_tokens": 2048,
-                    "stream": True,
-                }
-                req = urllib.request.Request(
-                    f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions",
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                )
+                active_file = body.get("active_file")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
                 try:
-                    with urllib.request.urlopen(req, timeout=360) as resp:
-                        self.send_response(200)
-                        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-                        self.send_header("Cache-Control", "no-cache")
-                        self.end_headers()
-                        while True:
-                            chunk = resp.readline()
-                            if not chunk:
-                                break
-                            self.wfile.write(chunk)
-                            self.wfile.flush()
+                    for ev in run_agent_stream(arbiter, ws, msgs, active_file=active_file, mode=mode):
+                        line = f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode("utf-8")
+                        self.wfile.write(line)
+                        self.wfile.flush()
+                    self.wfile.write(b"data: [DONE]\n\n")
+                    self.wfile.flush()
                 except Exception as exc:
-                    self._json({"error": str(exc)}, status=502)
+                    err_line = f"data: {json.dumps({'type': 'error', 'error': str(exc)}, ensure_ascii=False)}\n\n".encode("utf-8")
+                    self.wfile.write(err_line)
+                    self.wfile.flush()
                 return
 
             self._json({"error": "Not found"}, status=404)

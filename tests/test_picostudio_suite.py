@@ -29,6 +29,7 @@ STUDIO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(STUDIO_ROOT) not in sys.path:
     sys.path.insert(0, str(STUDIO_ROOT))
 
+from picostudio.agent import execute_tool
 from picostudio.arbiter import GPUArbiter, load_config
 from picostudio.cli import build_parser
 from picostudio.terminal import TerminalSession
@@ -58,6 +59,16 @@ class TestPicoStudioSuite(unittest.TestCase):
 
             self.assertTrue(ws.delete_file("src/hello.py"))
             self.assertFalse(ws.delete_file("src/hello.py"))
+
+            # Verify agent tools + project snapshot
+            ws.write_file("README.md", "# Araban Demo\n3D driving game.")
+            snap = ws.project_context_snapshot()
+            self.assertIn("Araban Demo", snap)
+            res_txt, mod_path = execute_tool(ws, "write_file", {"path": "agent_out.py", "content": "x = 42\n"})
+            self.assertEqual(mod_path, "agent_out.py")
+            self.assertIn("OK:", res_txt)
+            read_txt, _ = execute_tool(ws, "read_file", {"path": "agent_out.py"})
+            self.assertIn("x = 42", read_txt)
 
     def test_02_terminal_command_and_cd(self) -> None:
         with tempfile.TemporaryDirectory() as td:
