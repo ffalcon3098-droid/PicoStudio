@@ -29,8 +29,8 @@ STUDIO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(STUDIO_ROOT) not in sys.path:
     sys.path.insert(0, str(STUDIO_ROOT))
 
-from picostudio import diagnostics, git_ops
-from picostudio.agent import detect_test_command, execute_tool, extract_at_file_context, run_agent_stream, run_workspace_tests
+from picostudio import diagnostics, git_ops, symbols
+from picostudio.agent import detect_test_command, execute_tool, extract_at_file_context, load_project_rules, run_agent_stream, run_workspace_tests
 from picostudio.arbiter import GPUArbiter, load_config
 from picostudio.cli import build_parser
 from picostudio.sessions import ChatSessionStore
@@ -156,11 +156,14 @@ class TestPicoStudioSuite(unittest.TestCase):
                     html = r.read().decode("utf-8")
                     self.assertEqual(r.status, 200)
                     self.assertIn("PicoStudio IDE", html)
-                    self.assertIn("v0.5.0", html)
+                    self.assertIn("v0.6.0", html)
                     self.assertIn("codeHighlight", html)
                     self.assertIn("findBar", html)
                     self.assertIn("quickOpenBackdrop", html)
                     self.assertIn("cmdPaletteBackdrop", html)
+                    self.assertIn("symBackdrop", html)
+                    self.assertIn("fimBar", html)
+                    self.assertIn("projReplaceRow", html)
                     self.assertIn("inlineKBar", html)
                     self.assertIn("diagBar", html)
                     self.assertIn("leftResizer", html)
@@ -446,6 +449,47 @@ class TestPicoStudioSuite(unittest.TestCase):
             self.assertEqual(loaded["messages"][0]["content"], "Proje A sorusu")
             self.assertTrue(store.delete_session(p_a, s1["id"]))
             self.assertEqual(len(store.list_sessions(p_a)), 0)
+
+    def test_09_v060_symbols_project_replace_and_project_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            ws = Workspace(td)
+            ws.write_file("svc.py", "class Engine:\n    def run_fast(self, x):\n        return x * 2\n\ndef helper():\n    return 1\n")
+            ws.write_file("ui.ts", "export interface Metric { v: number }\nexport const formatVal = (n: number) => String(n);\n")
+            ws.write_file(".picostudio.md", "Her zaman Turkce yanit ver ve tip anotasyonu kullan.\n")
+
+            # Python AST symbols + fallback + TS symbols
+            py_syms = symbols.extract_file_symbols("svc.py", ws.read_file("svc.py")["content"])
+            names = {s["name"] for s in py_syms}
+            self.assertIn("Engine", names)
+            self.assertIn("Engine.run_fast", names)
+            self.assertIn("helper", names)
+
+            ts_syms = symbols.extract_file_symbols("ui.ts", ws.read_file("ui.ts")["content"])
+            ts_names = {s["name"] for s in ts_syms}
+            self.assertIn("Metric", ts_names)
+            self.assertIn("formatVal", ts_names)
+
+            # Exact workspace Go-to-Definition lookup
+            exact = symbols.search_workspace_symbols(ws, "run_fast", exact=True)
+            self.assertEqual(len(exact), 1)
+            self.assertEqual(exact[0]["path"], "svc.py")
+            self.assertEqual(exact[0]["line"], 2)
+
+            # Project-wide search & replace (dry_run + apply + undo)
+            dry = ws.replace_in_project("run_fast", "run_turbo", dry_run=True)
+            self.assertEqual(dry["total_replacements"], 1)
+            self.assertIn("run_fast", ws.read_file("svc.py")["content"])
+
+            applied = ws.replace_in_project("run_fast", "run_turbo", dry_run=False)
+            self.assertEqual(applied["total_replacements"], 1)
+            self.assertIn("run_turbo", ws.read_file("svc.py")["content"])
+            ws.undo_edit(applied["files"][0]["undo_id"])
+            self.assertIn("run_fast", ws.read_file("svc.py")["content"])
+
+            # Project rules auto-loader
+            rules = load_project_rules(ws)
+            self.assertIn(".picostudio.md", rules)
+            self.assertIn("tip anotasyonu", rules)
 
 
 if __name__ == "__main__":

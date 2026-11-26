@@ -276,3 +276,34 @@ class Workspace:
             except OSError:
                 continue
         return hits
+
+    def replace_in_project(self, query: str, replacement: str, *, dry_run: bool = False, max_files: int = 80) -> dict[str, Any]:
+        """Case-sensitive safe multi-file search & replace across workspace text files (with undo snapshots)."""
+        q = query or ""
+        if not q:
+            return {"ok": False, "error": "Aranacak metin bos olamaz.", "files": [], "total_replacements": 0}
+        changed: list[dict[str, Any]] = []
+        total = 0
+        for item in self.list_tree(max_depth=5, max_items=600):
+            if item["kind"] != "file" or item["size"] > MAX_READ_BYTES:
+                continue
+            p = self.root / item["path"]
+            if p.suffix.lower() not in TEXT_EXTS and p.name not in ("LICENSE", "Makefile", "Dockerfile"):
+                continue
+            try:
+                old_text = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            cnt = old_text.count(q)
+            if cnt <= 0:
+                continue
+            total += cnt
+            entry: dict[str, Any] = {"path": item["path"], "count": cnt}
+            if not dry_run:
+                new_text = old_text.replace(q, replacement)
+                res = self.write_file_with_diff(item["path"], new_text)
+                entry["undo_id"] = res["undo_id"]
+            changed.append(entry)
+            if len(changed) >= max_files:
+                break
+        return {"ok": True, "dry_run": dry_run, "files": changed, "total_replacements": total}

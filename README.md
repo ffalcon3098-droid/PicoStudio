@@ -1,4 +1,4 @@
-# PicoStudio v0.5.0 — Unified Local IDE Pro, Cursor-Style Ctrl+K, Terminal Pro, Git & Multi-Model AI Studio
+# PicoStudio v0.6.0 — Unified Local IDE Pro, Symbols & F12, Alt+Space AI FIM, Ctrl+K, Terminal Pro & Git
 
 > [Türkçe dokümantasyon için README.tr.md](README.tr.md)
 
@@ -8,6 +8,11 @@
 
 ## Highlights
 
+- **Smart Navigation, `Alt+Space` AI Autocomplete & Project Replace (`v0.6.0`):**
+  - **Symbol Outline (`Ctrl+Shift+O`) & `F12` Go-to-Definition (`picostudio/symbols.py`):** Python AST + JS/TS symbol indexer for current-file outline, workspace-wide `#symbol` search, and instant `F12` jump-to-definition.
+  - **On-Demand `Alt+Space` AI Code Completion (FIM):** Prefix/suffix-aware local LLM completion bar with `Tab` to accept and `Esc` to dismiss.
+  - **Project-Wide Search & Replace (`⇄`):** Safe dry-run previewed multi-file replace with undo snapshots + exact line jump on every search hit.
+  - **Auto Project AI Rules (`.picostudio.md` / `AGENTS.md`) + Quick Prompt Chips (`/review`, `/bug`, `/test`, `/refactor`, `/doc`, `/plan`).**
 - **Cursor-Style `Ctrl+K` Inline AI Edit & Instant Diagnostics (`v0.5.0`):**
   - Select any code block and press **`Ctrl+K`** to instruct the local LLM with a live unified diff preview and 1-click **Apply**.
   - Instant zero-dependency **Python (`ast.parse`) & JSON syntax diagnostics** banner on open/save with 1-click *Go to Line* and *Fix with AI*.

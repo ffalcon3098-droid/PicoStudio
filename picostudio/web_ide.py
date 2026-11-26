@@ -25,7 +25,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from picostudio import diagnostics, git_ops
+from picostudio import diagnostics, git_ops, symbols
 from picostudio.agent import run_agent_stream
 from picostudio.arbiter import GPUArbiter, load_config
 from picostudio.sessions import ChatSessionStore
@@ -94,6 +94,12 @@ IDE_HTML = r"""<!doctype html>
   .at-menu{display:none;position:absolute;bottom:100%;left:0;right:0;margin-bottom:4px;max-height:170px;overflow-y:auto;background:var(--p1);border:1px solid var(--acc);border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,.55);z-index:50}
   .at-item{padding:5px 9px;cursor:pointer;font-size:12px;font-family:Consolas,monospace;color:var(--txt)}
   .at-item:hover,.at-item.sel{background:rgba(56,189,248,.18);color:var(--acc)}
+  .fim-bar{display:none;flex-direction:column;gap:5px;padding:7px 10px;background:#0e1b2d;border-bottom:1px solid #818cf8;font-size:12px}
+  .fim-bar pre{margin:0;padding:6px 8px;background:var(--code);border:1px solid var(--b);border-radius:6px;max-height:110px;overflow:auto;font-family:"Cascadia Code",Consolas,monospace;font-size:11.5px;color:#a5f3fc}
+  .chip-row{display:flex;gap:4px;flex-wrap:wrap;padding:0 2px}
+  .chip{font-size:10.5px;padding:2px 7px;border-radius:999px;background:var(--p2);border:1px solid var(--b);color:var(--mut);cursor:pointer}
+  .chip:hover{border-color:var(--acc);color:var(--acc)}
+  .sym-kind{font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(129,140,248,.18);color:#a5b4fc;font-family:Consolas,monospace;margin-right:6px}
 
   /* Left Explorer + Git Panel */
   .ltabs{display:flex;background:var(--p1);border-bottom:1px solid var(--b)}
@@ -230,7 +236,7 @@ IDE_HTML = r"""<!doctype html>
 <header>
   <div class="brand">
     <span>PicoStudio IDE</span>
-    <span class="pill">v0.5.0</span>
+    <span class="pill">v0.6.0</span>
     <span id="gpuOwnerPill" class="pill">GPU: Boşta</span>
   </div>
   <div class="row">
@@ -269,6 +275,11 @@ IDE_HTML = r"""<!doctype html>
       <div class="search-box">
         <input id="searchInp" placeholder="Projede ara..." onkeydown="if(event.key==='Enter')searchProject()" />
         <button class="sm" onclick="searchProject()">Ara</button>
+        <button class="sm" onclick="toggleProjReplace()" title="Proje çapında bul &amp; değiştir">⇄</button>
+      </div>
+      <div id="projReplaceRow" class="search-box" style="display:none">
+        <input id="projReplaceInp" placeholder="Bununla değiştir..." onkeydown="if(event.key==='Enter')replaceInProject()" />
+        <button class="sm primary" onclick="replaceInProject()">Değiştir</button>
       </div>
       <div id="searchHits" class="search-hits"></div>
       <div id="fileTree" class="tree"></div>
@@ -303,6 +314,8 @@ IDE_HTML = r"""<!doctype html>
         <span id="activeFileLbl">Dosya seçilmedi</span>
         <span id="cursorStatus" style="font-size:11px;color:#64748b"></span>
         <div style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap">
+          <button class="sm" onclick="openSymbolPalette(false)" title="Dosya sembolleri / Outline (Ctrl+Shift+O · # ile tüm proje)">ƒ Sembol</button>
+          <button class="sm" onclick="triggerFimComplete()" title="İmleçte AI kod tamamlama (Alt+Space)">⚡ Tamamla</button>
           <button class="sm purple" onclick="openInlineEditBar()" title="Seçili kodu AI ile satır içi düzenle (Ctrl+K)">✨ Ctrl+K</button>
           <button class="sm" onclick="toggleFindBar(true)" title="Dosya içi bul / değiştir (Ctrl+F)">Bul</button>
           <button class="sm" onclick="adjustFontSize(-1)" title="Yazıyı küçült">A-</button>
@@ -315,6 +328,15 @@ IDE_HTML = r"""<!doctype html>
         </div>
       </div>
       <div id="diagBar" class="diag-bar"></div>
+      <div id="fimBar" class="fim-bar">
+        <div class="row" style="gap:6px">
+          <span class="pill">⚡ AI Tamamlama</span>
+          <span id="fimStatus" style="font-size:11.5px;color:var(--mut);flex:1">İmleç için öneri üretiliyor...</span>
+          <button class="sm primary" onclick="acceptFim()">✓ Kabul (Tab)</button>
+          <button class="sm danger" onclick="hideFim()">İptal (Esc)</button>
+        </div>
+        <pre id="fimCode"></pre>
+      </div>
       <div id="inlineKBar" class="inline-k">
         <div class="row" style="gap:6px">
           <span class="pill">✨ Ctrl+K Satır İçi AI</span>
@@ -422,6 +444,14 @@ IDE_HTML = r"""<!doctype html>
           <span id="chatImgTag" style="display:none" class="pill ok">Görsel eklendi</span>
           <button class="sm" style="margin-left:auto" onclick="newChatSession()">Temizle</button>
         </div>
+        <div class="chip-row">
+          <span class="chip" onclick="useQuickChip('/review')">/review</span>
+          <span class="chip" onclick="useQuickChip('/bug')">/bug</span>
+          <span class="chip" onclick="useQuickChip('/test')">/test</span>
+          <span class="chip" onclick="useQuickChip('/refactor')">/refactor</span>
+          <span class="chip" onclick="useQuickChip('/doc')">/doc</span>
+          <span class="chip" onclick="useQuickChip('/plan')">/plan</span>
+        </div>
         <div class="row" style="align-items:flex-end;position:relative">
           <div id="atMenu" class="at-menu"></div>
           <textarea id="chatInp" rows="2" style="flex:1;resize:vertical" placeholder="Görev yazın (@dosya bağlam · Ctrl+Enter gönder)..." oninput="onChatInpChange()" onkeydown="onChatInpKey(event)"></textarea>
@@ -489,6 +519,14 @@ IDE_HTML = r"""<!doctype html>
   <div class="qo-modal">
     <input id="cmdPaletteInp" placeholder="Komut ara (Ctrl+Shift+P)..." oninput="renderCmdPalette()" onkeydown="onCmdPaletteKey(event)" />
     <div id="cmdPaletteList" class="qo-list"></div>
+  </div>
+</div>
+
+<!-- SYMBOL OUTLINE MODAL (Ctrl+Shift+O · # for workspace) -->
+<div id="symBackdrop" class="qo-backdrop" onclick="if(event.target===this)closeSymbolPalette()">
+  <div class="qo-modal">
+    <input id="symInp" placeholder="Sembol ara (Ctrl+Shift+O · tüm proje için # yazın)..." oninput="renderSymbolPalette()" onkeydown="onSymbolKey(event)" />
+    <div id="symList" class="qo-list"></div>
   </div>
 </div>
 
@@ -653,6 +691,9 @@ editor.addEventListener('keydown', e=>{
     editor.dispatchEvent(new Event('input'));
     return;
   }
+  if(e.key==='F12'){ e.preventDefault(); gotoDefinitionAtCursor(); return; }
+  if(e.altKey && e.code==='Space'){ e.preventDefault(); triggerFimComplete(); return; }
+  if(e.key==='Tab' && pendingFimText){ e.preventDefault(); acceptFim(); return; }
   if(e.key==='Tab'){
     e.preventDefault();
     if(e.shiftKey){
@@ -723,10 +764,12 @@ editor.addEventListener('keydown', e=>{
   }
 });
 
-/* Global Shortcuts: Ctrl+P Quick Open, Ctrl+Shift+P Command Palette, Ctrl+K Inline Edit, Ctrl+B Sidebar */
+/* Global Shortcuts: Ctrl+P Quick Open, Ctrl+Shift+P Command Palette, Ctrl+Shift+O Symbols, Ctrl+K Inline Edit, Ctrl+B Sidebar */
 window.addEventListener('keydown', e=>{
   if((e.ctrlKey||e.metaKey) && e.shiftKey && e.key.toLowerCase()==='p'){
     e.preventDefault(); openCmdPalette();
+  }else if((e.ctrlKey||e.metaKey) && e.shiftKey && e.key.toLowerCase()==='o'){
+    e.preventDefault(); openSymbolPalette(false);
   }else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='p'){
     e.preventDefault(); openQuickOpen();
   }else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='k'){
@@ -734,8 +777,10 @@ window.addEventListener('keydown', e=>{
   }else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='b'){
     e.preventDefault(); togglePane(e.shiftKey ? 'rightPane' : 'leftPane');
   }else if(e.key==='Escape'){
-    if(document.getElementById('cmdPaletteBackdrop').style.display==='flex') closeCmdPalette();
+    if(document.getElementById('symBackdrop').style.display==='flex') closeSymbolPalette();
+    else if(document.getElementById('cmdPaletteBackdrop').style.display==='flex') closeCmdPalette();
     else if(document.getElementById('quickOpenBackdrop').style.display==='flex') closeQuickOpen();
+    else if(document.getElementById('fimBar').style.display==='flex') hideFim();
     else if(document.getElementById('inlineKBar').style.display==='flex') closeInlineEditBar();
     else if(document.getElementById('findBar').style.display==='flex') toggleFindBar(false);
   }
@@ -801,6 +846,10 @@ function togglePane(id){
 /* Command Palette (Ctrl+Shift+P) */
 const IDE_COMMANDS = [
   {label:'Dosya: Hızlı Aç (Ctrl+P)', run:()=>openQuickOpen()},
+  {label:'Gezinme: Dosya Sembolleri / Outline (Ctrl+Shift+O)', run:()=>openSymbolPalette(false)},
+  {label:'Gezinme: Tüm Proje Sembollerinde Ara (#)', run:()=>openSymbolPalette(true)},
+  {label:'Gezinme: İmleçteki Sembol Tanımına Git (F12)', run:()=>gotoDefinitionAtCursor()},
+  {label:'Editör: AI Kod Tamamlama (Alt+Space)', run:()=>triggerFimComplete()},
   {label:'Editör: Satır İçi AI Düzenle (Ctrl+K)', run:()=>openInlineEditBar()},
   {label:'Editör: Dosya İçi Bul & Değiştir (Ctrl+F)', run:()=>toggleFindBar(true)},
   {label:'Editör: Aktif Dosyayı Kaydet (Ctrl+S)', run:()=>saveActiveFile()},
@@ -1404,7 +1453,183 @@ async function searchProject(){
   if(!q){ box.style.display='none'; return; }
   const r = await fetch('/api/workspace/search?q='+encodeURIComponent(q)).then(x=>x.json());
   box.style.display = 'block';
-  box.innerHTML = r.hits.length ? r.hits.map(h=>`<div class="hit" onclick="openFile('${escHtml(h.path)}')"><b>${escHtml(h.path)}:${h.line}</b><div style="color:var(--mut)">${escHtml(h.text)}</div></div>`).join('') : '<div class="hit">Sonuç bulunamadı</div>';
+  box.innerHTML = r.hits.length ? r.hits.map(h=>`<div class="hit" onclick="openFileAtLine('${escHtml(h.path)}',${h.line})"><b>${escHtml(h.path)}:${h.line}</b><div style="color:var(--mut)">${escHtml(h.text)}</div></div>`).join('') : '<div class="hit">Sonuç bulunamadı</div>';
+}
+
+async function openFileAtLine(path, line){
+  await openFile(path);
+  gotoEditorLine(line);
+}
+
+function toggleProjReplace(){
+  const row = document.getElementById('projReplaceRow');
+  row.style.display = (row.style.display === 'flex') ? 'none' : 'flex';
+  if(row.style.display === 'flex') document.getElementById('projReplaceInp').focus();
+}
+
+async function replaceInProject(){
+  const q = document.getElementById('searchInp').value;
+  const rep = document.getElementById('projReplaceInp').value;
+  if(!q){ alert('Önce aranacak metni yazın.'); return; }
+  const prev = await fetch('/api/workspace/replace',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({query:q, replacement:rep, dry_run:true})
+  }).then(x=>x.json());
+  if(!prev.ok || !prev.total_replacements){ alert('Eşleşme bulunamadı.'); return; }
+  const summary = prev.files.slice(0,8).map(f=>`${f.path} (${f.count})`).join('\n');
+  if(!confirm(`${prev.files.length} dosyada toplam ${prev.total_replacements} eşleşme değiştirilecek:\n\n${summary}\n\nDevam edilsin mi?`)) return;
+  const res = await fetch('/api/workspace/replace',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({query:q, replacement:rep, dry_run:false})
+  }).then(x=>x.json());
+  if(res.ok){
+    for(const f of (res.files||[])){
+      if(openTabs[f.path]){ delete openTabs[f.path]; if(activeTab===f.path) openFile(f.path); }
+    }
+    searchProject(); loadGitStatus(false);
+    alert(`✓ ${res.files.length} dosyada ${res.total_replacements} değişiklik uygulandı.`);
+  }
+}
+
+/* ========== V0.6.0: SYMBOLS OUTLINE (Ctrl+Shift+O), F12 GO-TO-DEF, ALT+SPACE FIM & QUICK CHIPS ========== */
+let symItems = []; let symSel = 0; let symFileCache = [];
+async function openSymbolPalette(workspaceWide=false){
+  document.getElementById('symBackdrop').style.display = 'flex';
+  const inp = document.getElementById('symInp');
+  inp.value = workspaceWide ? '#' : '';
+  inp.focus(); symSel = 0;
+  symFileCache = [];
+  if(activeTab){
+    const r = await fetch('/api/editor/symbols',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({path:activeTab, content:editor.value})
+    }).then(x=>x.json()).catch(()=>({symbols:[]}));
+    symFileCache = (r.symbols||[]).map(s=>({...s, path:activeTab}));
+  }
+  renderSymbolPalette();
+}
+function closeSymbolPalette(){ document.getElementById('symBackdrop').style.display = 'none'; }
+async function renderSymbolPalette(){
+  const raw = document.getElementById('symInp').value.trim();
+  if(raw.startsWith('#')){
+    const q = raw.slice(1).trim();
+    const r = await fetch('/api/workspace/symbols?q='+encodeURIComponent(q)).then(x=>x.json()).catch(()=>({symbols:[]}));
+    symItems = r.symbols || [];
+  }else{
+    symItems = symFileCache
+      .map(s=>({s, sc:fuzzyScore(s.name + ' ' + (s.detail||''), raw)}))
+      .filter(x=>x.sc>=0).sort((a,b)=>b.sc-a.sc).map(x=>x.s);
+  }
+  if(symSel >= symItems.length) symSel = 0;
+  document.getElementById('symList').innerHTML = symItems.length ? symItems.slice(0,30).map((s,i)=>
+    `<div class="qo-item${i===symSel?' sel':''}" onclick="jumpSymbolIdx(${i})"><span><span class="sym-kind">${escHtml(s.kind)}</span>${escHtml(s.name)}</span><span class="qo-dir">${escHtml(s.path||'')}:${s.line}</span></div>`
+  ).join('') : '<div style="padding:12px 14px;color:var(--mut);font-size:12px">Sembol bulunamadı (tüm proje için # ile arayın).</div>';
+}
+async function jumpSymbolIdx(i){
+  const s = symItems[i]; closeSymbolPalette();
+  if(!s) return;
+  if(s.path && s.path !== activeTab) await openFile(s.path);
+  gotoEditorLine(s.line);
+}
+function onSymbolKey(ev){
+  if(ev.key==='ArrowDown'){ ev.preventDefault(); symSel = Math.min(symItems.length-1, symSel+1); renderSymbolPalette(); }
+  else if(ev.key==='ArrowUp'){ ev.preventDefault(); symSel = Math.max(0, symSel-1); renderSymbolPalette(); }
+  else if(ev.key==='Enter' && symItems[symSel]){ ev.preventDefault(); jumpSymbolIdx(symSel); }
+  else if(ev.key==='Escape'){ closeSymbolPalette(); }
+}
+
+function getWordAtCursor(){
+  const val = editor.value, pos = editor.selectionStart || 0;
+  let a = pos, b = pos;
+  while(a > 0 && /[A-Za-z0-9_$]/.test(val[a-1])) a--;
+  while(b < val.length && /[A-Za-z0-9_$]/.test(val[b])) b++;
+  return val.slice(a, b);
+}
+async function gotoDefinitionAtCursor(){
+  const word = getWordAtCursor();
+  if(!word) return;
+  // 1) Check current file first
+  if(activeTab){
+    const r = await fetch('/api/editor/symbols',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({path:activeTab, content:editor.value})
+    }).then(x=>x.json()).catch(()=>({symbols:[]}));
+    const localHit = (r.symbols||[]).find(s=>s.name===word || s.short===word);
+    if(localHit){ gotoEditorLine(localHit.line); return; }
+  }
+  // 2) Search across whole workspace
+  const wr = await fetch('/api/workspace/symbols?exact=1&q='+encodeURIComponent(word)).then(x=>x.json()).catch(()=>({symbols:[]}));
+  const hit = (wr.symbols||[])[0];
+  if(hit){ await openFileAtLine(hit.path, hit.line); }
+}
+
+/* On-Demand Alt+Space AI Code Completion (FIM) */
+let pendingFimText = '';
+let pendingFimPos = 0;
+async function triggerFimComplete(){
+  if(!activeTab){ alert('Önce bir dosya açın.'); return; }
+  const pos = editor.selectionStart || 0;
+  pendingFimPos = pos; pendingFimText = '';
+  const bar = document.getElementById('fimBar');
+  bar.style.display = 'flex';
+  document.getElementById('fimStatus').textContent = 'Yerel AI imleç için tamamlama üretiyor...';
+  document.getElementById('fimCode').textContent = '...';
+  try{
+    const r = await fetch('/api/editor/complete',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        path: activeTab,
+        prefix: editor.value.slice(Math.max(0, pos - 1800), pos),
+        suffix: editor.value.slice(pos, pos + 600),
+      })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.completion){
+      document.getElementById('fimStatus').textContent = j.error || 'Tamamlama üretilemedi.';
+      document.getElementById('fimCode').textContent = '';
+      return;
+    }
+    pendingFimText = j.completion;
+    document.getElementById('fimStatus').textContent = 'Hazır — Tab veya ✓ Kabul ile ekleyin';
+    document.getElementById('fimCode').textContent = pendingFimText;
+  }catch(e){
+    document.getElementById('fimStatus').textContent = 'Hata: ' + e;
+  }
+}
+function acceptFim(){
+  if(!pendingFimText) return;
+  const val = editor.value;
+  const p = pendingFimPos;
+  editor.value = val.slice(0, p) + pendingFimText + val.slice(p);
+  editor.selectionStart = editor.selectionEnd = p + pendingFimText.length;
+  editor.dispatchEvent(new Event('input'));
+  hideFim();
+}
+function hideFim(){
+  pendingFimText = '';
+  document.getElementById('fimBar').style.display = 'none';
+  editor.focus();
+}
+
+const QUICK_CHIP_PROMPTS = {
+  '/review': 'Aktif dosyayı güvenlik, performans ve okunabilirlik açısından incele, en önemli 3 iyileştirmeyi listele.',
+  '/bug': 'Aktif dosyadaki olası bug ve kenar durum hatalarını tespit edip düzelt.',
+  '/test': 'Aktif dosya için kapsamlı unittest birim testleri yaz ve çalıştır.',
+  '/refactor': 'Aktif dosyayı daha temiz, modüler ve okunabilir olacak şekilde refactor et.',
+  '/doc': 'Aktif dosyadaki fonksiyon ve sınıflara kısa, net docstring ve tip anotasyonları ekle.',
+  '/plan': 'Bu değişiklik için önce çok dosyalı bir uygulama planı hazırla: ',
+};
+function useQuickChip(cmd){
+  const inp = document.getElementById('chatInp');
+  if(cmd === '/plan'){
+    document.getElementById('agentMode').value = 'plan';
+    inp.value = QUICK_CHIP_PROMPTS[cmd];
+    inp.focus();
+    return;
+  }
+  const ref = activeTab ? `@${activeTab} ` : '';
+  inp.value = ref + (QUICK_CHIP_PROMPTS[cmd] || cmd);
+  inp.focus();
 }
 
 /* ========== TERMINAL PRO (Multi-Tab, Live SSE, ANSI, Clickable Links, Stdin, Tab-Complete, ? AI) ========== */
@@ -2102,6 +2327,10 @@ def make_handler(
             if path == "/api/workspace/search":
                 self._json({"hits": ws.search(qs.get("q", ""))})
                 return
+            if path == "/api/workspace/symbols":
+                exact = qs.get("exact") in ("1", "true", "True")
+                self._json({"symbols": symbols.search_workspace_symbols(ws, qs.get("q", ""), exact=exact)})
+                return
             if path == "/api/git/status":
                 self._json(git_ops.get_status(ws))
                 return
@@ -2201,6 +2430,67 @@ def make_handler(
             if path == "/api/editor/check":
                 diags = diagnostics.check_syntax(str(body.get("path") or ""), str(body.get("content") or ""))
                 self._json({"diagnostics": diags})
+                return
+
+            if path == "/api/editor/symbols":
+                syms = symbols.extract_file_symbols(str(body.get("path") or ""), str(body.get("content") or ""))
+                self._json({"symbols": syms})
+                return
+
+            if path == "/api/workspace/replace":
+                res = ws.replace_in_project(
+                    str(body.get("query") or ""),
+                    str(body.get("replacement") or ""),
+                    dry_run=bool(body.get("dry_run", True)),
+                )
+                self._json(res, status=200 if res.get("ok") else 400)
+                return
+
+            if path == "/api/editor/complete":
+                if arbiter.owner == "media":
+                    self._json({"error": "GPU su an Video/Gorsel uretiminde."}, status=409)
+                    return
+                if arbiter.owner != "coding":
+                    ok, msg = arbiter.start_coding(wait_ready=True)
+                    if not ok:
+                        self._json({"error": msg}, status=503)
+                        return
+                rel_p = str(body.get("path") or "code.py")
+                prefix = str(body.get("prefix") or "")[-1800:]
+                suffix = str(body.get("suffix") or "")[:600]
+                payload = {
+                    "model": arbiter.coding_model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                f"You are an inline code autocomplete engine for `{rel_p}`. "
+                                "Continue the code strictly at <CURSOR> so it fits cleanly between PREFIX and SUFFIX. "
+                                "Output ONLY the raw code to insert at <CURSOR> (1-12 lines max). NO markdown fences, NO explanations."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": f"PREFIX:\n{prefix}<CURSOR>\nSUFFIX:\n{suffix}",
+                        },
+                    ],
+                    "temperature": 0.15,
+                    "max_tokens": 180,
+                }
+                req = urllib.request.Request(
+                    f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=90) as resp:
+                        res = json.loads(resp.read().decode("utf-8", errors="replace"))
+                    txt = (res["choices"][0]["message"].get("content") or "").strip("\r\n")
+                    m_blk = re.search(r"```[A-Za-z0-9_+-]*\n([\s\S]*?)```", txt)
+                    comp = m_blk.group(1).rstrip("\r\n") if m_blk else txt
+                    self._json({"completion": comp})
+                except Exception as exc:
+                    self._json({"error": str(exc)}, status=502)
                 return
 
             if path == "/api/editor/inline-edit":
@@ -2572,7 +2862,7 @@ def run_ide(
     httpd = PicoStudioHTTPServer((h, p), make_handler(arbiter, ws, term_mgr))
     url = f"http://{h}:{p}/"
     print("============================================================")
-    print(f"  PicoStudio Local IDE v0.5.0 -> {url}")
+    print(f"  PicoStudio Local IDE v0.6.0 -> {url}")
     print(f"  Aktif Proje                 -> {ws.root}")
     print(f"  Kodlama Motoru              -> {arbiter.picocode_dir}")
     print(f"  Video/Gorsel Motoru         -> {arbiter.picovid_dir}")

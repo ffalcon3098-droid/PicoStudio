@@ -1,4 +1,4 @@
-# PicoStudio v0.5.0 — Birleşik Yerel IDE Pro, Cursor Tarzı Ctrl+K, Terminal Pro, Git & Çoklu AI Stüdyosu
+# PicoStudio v0.6.0 — Birleşik Yerel IDE Pro, Sembol & F12, Alt+Space AI Tamamlama, Ctrl+K, Terminal Pro & Git
 
 > [For English documentation, see README.md](README.md)
 
@@ -8,6 +8,11 @@
 
 ## Öne Çıkan Özellikler
 
+- **Akıllı Gezinme, `Alt+Space` AI Tamamlama & Proje Değiştirme (`v0.6.0`):**
+  - **Sembol Gezgini (`Ctrl+Shift+O`) & `F12` Tanıma Git (`picostudio/symbols.py`):** Python AST + JS/TS sembol çıkarıcı ile dosya içi Outline, `#` ile proje geneli sembol arama ve imleçteki fonksiyona `F12` ile anında atlama.
+  - **İsteğe Bağlı `Alt+Space` AI Kod Tamamlama (FIM):** İmleç öncesi/sonrası bağlamla yerel modelden tamamlama önerisi (`Tab` ile kabul, `Esc` ile iptal).
+  - **Proje Çapında Bul & Değiştir (`⇄`):** Önizlemeli ve geri alınabilir çok dosyalı değiştirme + her arama sonucunda doğrudan ilgili satıra atlama.
+  - **Otomatik Proje AI Kuralları (`.picostudio.md` / `AGENTS.md`) + Hızlı Ajan Çipleri (`/review`, `/bug`, `/test`, `/refactor`, `/doc`, `/plan`).**
 - **Cursor Tarzı `Ctrl+K` Satır İçi AI & Anlık Kod Tanılama (`v0.5.0`):**
   - Editörde herhangi bir kod bloğunu seçip **`Ctrl+K`** tuşlayın; yerel AI canlı unified diff önizlemesi ve tek tık **Uygula** ile kodu yerinde düzenlesin.
   - Dosya açarken/kaydederken sıfır gecikmeli **Python (`ast.parse`) & JSON sözdizimi hata çubuğu** (`Satıra Git` ve `AI ile Düzelt`).

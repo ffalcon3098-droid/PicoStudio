@@ -248,6 +248,20 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
         return f"ERROR: {exc}", None
 
 
+def load_project_rules(ws: Workspace, max_chars: int = 1200) -> str:
+    """Auto-load workspace custom AI instructions from `.picostudio.md` or `AGENTS.md` if present."""
+    for fname in (".picostudio.md", "AGENTS.md"):
+        fp = ws.root / fname
+        if fp.is_file():
+            try:
+                txt = fp.read_text(encoding="utf-8", errors="replace").strip()
+                if txt:
+                    return f"\nProject rules ({fname}):\n{txt[:max_chars]}\n"
+            except OSError:
+                pass
+    return ""
+
+
 def extract_at_file_context(ws: Workspace, user_messages: list[dict[str, Any]], max_files: int = 3) -> str:
     """Resolve @path/to/file references in the latest user prompt and return safe file snippets."""
     import re
@@ -304,6 +318,7 @@ def run_agent_stream(
     """
     url = f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions"
     at_context = extract_at_file_context(ws, user_messages)
+    project_rules = load_project_rules(ws)
 
     # 1) Fast mode: direct complete answer using snapshot (NO tools)
     if mode == "fast":
@@ -315,7 +330,7 @@ def run_agent_stream(
             "You are PicoStudio, a concise local coding assistant. "
             "No tools in fast mode; ALL project context is below. "
             "Never say 'let me read files first'. Answer directly in the user's language.\n\n"
-            f"{snapshot}{active_block}{at_context}"
+            f"{snapshot}{project_rules}{active_block}{at_context}"
         )
         conv_fast: list[dict[str, Any]] = [{"role": "system", "content": fast_sys}] + list(user_messages)
         yield {"type": "status", "text": "Proje bağlamıyla yanıt üretiliyor..."}
@@ -366,7 +381,7 @@ def run_agent_stream(
             "You are in READ-ONLY PLAN MODE. Do NOT modify files. "
             "Use `list_files`, `read_file`, or `search_code` if needed, then produce a clear, numbered multi-file "
             "implementation plan (1. Hedef Dosyalar, 2. Yapılacak Değişiklikler, 3. Test/Doğrulama) in the user's language."
-            f"{at_context}"
+            f"{project_rules}{at_context}"
         )
     else:
         sys_prompt = (
@@ -374,7 +389,7 @@ def run_agent_stream(
             f"(root entries: {', '.join(root_items[:25])}).{active_hint} "
             "Use tools (`read_file`, `list_files`, `search_code`, `edit_file`, `write_file`, `run_terminal`) directly when needed. "
             "Prefer `edit_file` for targeted changes. Be brief; reply in the user's language."
-            f"{at_context}"
+            f"{project_rules}{at_context}"
         )
 
     conv: list[dict[str, Any]] = [{"role": "system", "content": sys_prompt}] + list(user_messages)
