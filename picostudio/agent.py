@@ -130,6 +130,7 @@ def run_workspace_tests(ws: Workspace, custom_cmd: str | None = None, timeout: i
     env = os.environ.copy()
     existing_pp = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(ws.root) + (os.pathsep + existing_pp if existing_pp else "")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # Avoid same-second/same-size stale .pyc during self-heal loops
     try:
         res = subprocess.run(
             ["powershell", "-NoProfile", "-Command", cmd],

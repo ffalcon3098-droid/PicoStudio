@@ -248,17 +248,25 @@
           </div>
           <div class="row">
             <select id="vidPreset" style="flex:1">
-              <option value="ltx23|t2v|768|448|25">LTX-2.3 22B T2V + Ses (768×448 · 24fps · 1.0sn)</option>
-              <option value="ltx23|t2v|640|384|49">LTX-2.3 22B T2V + Ses (640×384 · 24fps · 2.0sn)</option>
-              <option value="ltx23|t2v|768|448|49">LTX-2.3 22B T2V + Ses (768×448 · 24fps · 2.0sn Sinema)</option>
-              <option value="ltx23|studio|768|448|25">Stüdyo: Z-Image → LTX-2.3 I2V + Ses (768×448)</option>
+              <option value="ltx23|t2v|640|384|81">LTX-2.3 22B T2V + Ses (640×384 · 5.1sn · 16fps ★)</option>
+              <option value="ltx23|t2v|768|448|25">LTX-2.3 22B T2V + Ses (768×448 · 1.0sn · 24fps Hızlı)</option>
+              <option value="ltx23|t2v|640|384|49">LTX-2.3 22B T2V + Ses (640×384 · 3.1sn · 16fps)</option>
+              <option value="ltx23|i2v|640|384|81">LTX-2.3 22B I2V + Ses (Görselden 5.1sn Video)</option>
+              <option value="ltx23|studio|640|384|49">Stüdyo: Z-Image → LTX-2.3 I2V + Ses (3.1sn)</option>
               <option value="ltx23|t2i|832|480|1">Z-Image-Turbo Görsel (832×480 · 16:9 Hızlı)</option>
             </select>
           </div>
-          <div class="row" style="font-size:12px;color:var(--mut)">
-            <label style="display:none"><input type="checkbox" id="chkCinemaHd" /> Sinema HD</label>
+          <div class="row" style="gap:6px;align-items:center;font-size:12px">
+            <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px">
+              <span class="pill">🖼 I2V Görsel Seç</span>
+              <input id="vidInitFile" type="file" accept="image/*" style="display:none" onchange="uploadMediaInitImg(event)" />
+            </label>
+            <span id="vidInitTag" style="font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">Seçili değil (T2V)</span>
+            <button id="vidInitClear" class="sm" style="display:none" onclick="clearMediaInitImg()">×</button>
+          </div>
+          <div class="row" style="font-size:12px;color:var(--mut);gap:10px">
+            <label title="2x Vulkan AI Upscale (1280x768) + 32fps akıcılık — 48 kHz Stereo ses korunur!"><input type="checkbox" id="chkCinemaHd" checked /> Sinema HD (1280×768 · 32fps · Ses Korumalı)</label>
             <label style="display:none"><input type="checkbox" id="chkFastPrev" /> Hızlı Önizleme</label>
-            <span>LTX-2.3 Distilled 1.1 · 8 adım · 48kHz Stereo Ses + 24fps</span>
           </div>
           <div class="row">
             <button id="vidStartBtn" class="purple" style="flex:1" onclick="startMedia()">Üretimi Başlat</button>
@@ -267,7 +275,11 @@
         </div>
 
         <div class="mcard">
-          <div style="font-size:11.5px;color:var(--mut);font-weight:700">Canlı Üretim Logu</div>
+          <div class="row" style="justify-content:space-between;font-size:11.5px;color:var(--mut);font-weight:700">
+            <span>Canlı Üretim Durumu</span>
+            <span id="mediaProgLbl" style="color:#c084fc">Hazır</span>
+          </div>
+          <div class="mbar" style="width:100%;height:7px"><div id="mediaProgFill" class="mfill" style="width:0%;background:linear-gradient(90deg,#818cf8,#c084fc)"></div></div>
           <div id="mediaLogBox" class="logbox">Henüz üretim başlatılmadı.</div>
         </div>
 

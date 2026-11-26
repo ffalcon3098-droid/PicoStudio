@@ -496,16 +496,49 @@ def make_handler(
                 arbiter.stop_all()
                 self._json({"ok": True})
                 return
+            if path == "/api/media/upload-init":
+                import base64 as _b64
+                data_url = str(body.get("data_url") or "")
+                raw_name = re.sub(r"[^a-zA-Z0-9._-]", "_", str(body.get("name") or "init.png"))
+                ext = pathlib.Path(raw_name).suffix.lower()
+                if ext not in (".png", ".jpg", ".jpeg", ".webp"):
+                    self._json({"error": "Sadece PNG, JPG veya WEBP yuklenebilir."}, status=400)
+                    return
+                if "," not in data_url:
+                    self._json({"error": "Gecersiz gorsel verisi."}, status=400)
+                    return
+                raw_bytes = _b64.b64decode(data_url.split(",", 1)[1])
+                if len(raw_bytes) > 15 * 1024 * 1024:
+                    self._json({"error": "Gorsel 15 MB sinirini asiyor."}, status=413)
+                    return
+                up_dir = arbiter.picovid_dir / "outputs" / "_uploads"
+                up_dir.mkdir(parents=True, exist_ok=True)
+                dest = up_dir / f"ide_{int(time.time())}_{raw_name}"
+                dest.write_bytes(raw_bytes)
+                self._json({"ok": True, "path": str(dest), "name": dest.name})
+                return
             if path == "/api/media/start":
+                init_img = body.get("init_img")
+                if init_img:
+                    cand = pathlib.Path(str(init_img)).resolve()
+                    allowed_roots = [
+                        (arbiter.picovid_dir / "outputs").resolve(),
+                        ws.root.resolve(),
+                    ]
+                    if not any(str(cand).startswith(str(rt)) for rt in allowed_roots) or not cand.exists():
+                        self._json({"error": "Gecersiz giris gorseli yolu."}, status=403)
+                        return
+                    init_img = str(cand)
                 ok, msg, out_path = arbiter.start_media(
                     prompt=str(body.get("prompt") or ""),
                     engine=str(body.get("engine") or "ltx23"),
                     mode=str(body.get("mode") or "t2v"),
-                    width=int(body.get("width") or 768),
-                    height=int(body.get("height") or 448),
-                    frames=int(body.get("frames") or 25),
+                    width=int(body.get("width") or 640),
+                    height=int(body.get("height") or 384),
+                    frames=int(body.get("frames") or 81),
                     cinema_hd=bool(body.get("cinema_hd", False)),
                     fast_preview=bool(body.get("fast_preview", False)),
+                    init_img=init_img,
                 )
                 self._json({"ok": ok, "message": msg, "output": out_path}, status=200 if ok else 400)
                 return

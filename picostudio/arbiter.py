@@ -489,11 +489,10 @@ class GPUArbiter:
             ]
             if mode != "t2i":
                 cmd += ["-f", str(int(frames))]
-                if engine != "ltx23":
-                    if cinema_hd:
-                        cmd += ["--cinema-hd"]
-                    if fast_preview:
-                        cmd += ["--fast-preview"]
+                if cinema_hd:
+                    cmd += ["--cinema-hd"]
+                if fast_preview and engine != "ltx23":
+                    cmd += ["--fast-preview"]
             if init_img:
                 cmd += ["-i", init_img]
             if seed is not None:

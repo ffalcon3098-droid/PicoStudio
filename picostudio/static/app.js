@@ -1491,6 +1491,7 @@ async function pollStatus(){
       const ml = document.getElementById('mediaLogBox');
       ml.textContent = st.media_logs.join('\n');
       ml.scrollTop = ml.scrollHeight;
+      updateMediaProgress(st);
     }
   }catch(e){}
 }
@@ -1684,6 +1685,60 @@ async function sendAgent(){
 }
 
 /* Video & Image Studio */
+let mediaInitImgPath = null;
+
+async function uploadMediaInitImg(ev){
+  const f = ev.target.files && ev.target.files[0]; if(!f) return;
+  const rd = new FileReader();
+  rd.onload = async ()=>{
+    const r = await fetch('/api/media/upload-init',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:f.name, data_url:rd.result})
+    });
+    const j = await r.json();
+    if(r.ok && j.ok){
+      mediaInitImgPath = j.path;
+      document.getElementById('vidInitTag').textContent = '✓ ' + f.name;
+      document.getElementById('vidInitClear').style.display = 'inline-block';
+      const sel = document.getElementById('vidPreset');
+      if(sel && !sel.value.includes('|i2v|')) sel.value = 'ltx23|i2v|640|384|81';
+    } else alert(j.error||'Gorsel yuklenemedi');
+  };
+  rd.readAsDataURL(f);
+}
+
+function clearMediaInitImg(){
+  mediaInitImgPath = null;
+  document.getElementById('vidInitFile').value = '';
+  document.getElementById('vidInitTag').textContent = 'Seçili değil (T2V)';
+  document.getElementById('vidInitClear').style.display = 'none';
+}
+
+function updateMediaProgress(st){
+  const fill = document.getElementById('mediaProgFill');
+  const lbl = document.getElementById('mediaProgLbl');
+  if(!fill || !lbl) return;
+  const job = st.media_job;
+  if(!job){ fill.style.width='0%'; lbl.textContent='Hazır'; return; }
+  if(job.status==='done'){ fill.style.width='100%'; lbl.textContent='✓ Tamamlandı'; return; }
+  if(job.status==='error'){ lbl.textContent='✗ Hata'; return; }
+  if(job.status==='stopped'){ lbl.textContent='Durduruldu'; return; }
+  const txt = (st.media_logs||[]).join('\n');
+  let pct = 8, stage = 'Model / Gemma-3 yükleniyor...';
+  const stepMatches = [...txt.matchAll(/\|\s*(\d+)\/(\d+)\s*-\s*([\d.]+s\/it|[\d.]+it\/s)/g)];
+  if(txt.includes('Sinema HD') || txt.includes('AI Upscale')){ pct = 92; stage = 'Sinema HD (1280×768 · 32fps · Ses)...'; }
+  else if(txt.includes('audio vae decode completed')){ pct = 88; stage = 'Ses + H.264 MP4 paketleniyor...'; }
+  else if(txt.includes('sampling completed')){ pct = 72; stage = 'Video & Ses VAE Decode...'; }
+  else if(stepMatches.length){
+    const last = stepMatches[stepMatches.length-1];
+    const cur = +last[1], tot = Math.max(1, +last[2]);
+    pct = Math.round(12 + (cur/tot)*58);
+    stage = `LTX-2.3 Adım ${cur}/${tot} (${last[3]})`;
+  }
+  fill.style.width = pct + '%';
+  lbl.textContent = `${stage} · ${pct}%`;
+}
+
 async function enhanceVideoPrompt(){
   const box = document.getElementById('vidPrompt');
   const raw = box.value.trim();
@@ -1700,11 +1755,14 @@ async function enhanceVideoPrompt(){
 async function startMedia(){
   const prompt = document.getElementById('vidPrompt').value.trim();
   if(!prompt){ alert('Sahne promptu bos olamaz.'); return; }
-  const [engine, mode, w, h, f] = document.getElementById('vidPreset').value.split('|');
+  let [engine, mode, w, h, f] = document.getElementById('vidPreset').value.split('|');
+  if(mode==='i2v' && !mediaInitImgPath){ alert('I2V modu icin once bir gorsel secin.'); return; }
+  if(mode==='t2v' && mediaInitImgPath) mode = 'i2v';
   const r = await fetch('/api/media/start',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       prompt, engine, mode, width:+w, height:+h, frames:+f,
+      init_img: mode==='i2v' ? mediaInitImgPath : null,
       cinema_hd: document.getElementById('chkCinemaHd').checked,
       fast_preview: document.getElementById('chkFastPrev').checked,
     })
