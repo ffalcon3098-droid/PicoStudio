@@ -947,6 +947,11 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term: TerminalSession) -> t
     return Handler
 
 
+class PicoStudioHTTPServer(ThreadingHTTPServer):
+    """Disable SO_REUSEADDR on Windows so two IDE instances never silently share port 7900."""
+    allow_reuse_address = False
+
+
 def run_ide(
     *,
     host: str | None = None,
@@ -963,7 +968,7 @@ def run_ide(
     ws = Workspace(ws_path, projects_root=cfg.get("projects_root"))
     term = TerminalSession(ws.root)
 
-    httpd = ThreadingHTTPServer((h, p), make_handler(arbiter, ws, term))
+    httpd = PicoStudioHTTPServer((h, p), make_handler(arbiter, ws, term))
     url = f"http://{h}:{p}/"
     print("============================================================")
     print(f"  PicoStudio Local IDE  -> {url}")

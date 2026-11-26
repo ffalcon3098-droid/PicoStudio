@@ -216,6 +216,16 @@ class GPUArbiter:
             chosen_model = model_id or self.coding_model
             if self.owner == "coding" and self.coding_proc is not None and self.coding_proc.poll() is None and chosen_model == self.coding_model:
                 return True, f"{chosen_model} zaten hazir."
+            if self.owner == "coding_starting" and self.coding_proc is not None and self.coding_proc.poll() is None:
+                existing_proc = self.coding_proc
+            else:
+                existing_proc = None
+
+        if existing_proc is not None:
+            if wait_ready and self._picocode_serve is not None:
+                ok = self._picocode_serve.wait_for_health(self.llm_host, self.llm_port, existing_proc, timeout_s=180.0)
+                return ok, ("Hazir" if ok else "Sunucu hazir olamadi.")
+            return True, f"{self.coding_model} zaten yukleniyor..."
 
         self.stop_coding()
         if self._picocode_serve is None:
