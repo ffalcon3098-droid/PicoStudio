@@ -125,10 +125,8 @@ class GPUArbiter:
             vreg = json.loads(vid_reg_path.read_text(encoding="utf-8"))
             vfiles = vreg.get("files", {})
             checks = [
-                ("wan22-5b", "Wan 2.2 TI2V-5B Turbo (Hızlı 5sn Video)", ("wan22_ti2v_5b_turbo_q4", "wan22_ti2v_5b")),
-                ("wan22-14b-t2v", "Wan 2.2 14B T2V (Sinematik Video)", ("wan22_t2v_rapid_v10", "wan22_t2v_14b")),
-                ("wan22-14b-i2v", "Wan 2.2 14B I2V (Görselden Video)", ("wan22_i2v_low_q4", "wan22_i2v_low_q3")),
-                ("z-image-turbo", "Z-Image-Turbo (Hızlı Görsel Üretimi)", ("z_image_turbo_q4_k_m", "z_image_turbo_q4", "z_image_turbo")),
+                ("ltx23-distilled", "LTX-2.3 22B Distilled (Ses + Video · T2V/I2V)", ("ltx23_distilled_q4_k_m",)),
+                ("z-image-turbo", "Z-Image-Turbo (Hızlı Görsel Üretimi)", ("z_image_turbo_q4_k", "z_image_turbo_q4_k_m", "z_image_turbo")),
             ]
             for eid, label, keys in checks:
                 fitem = next((vfiles[k] for k in keys if k in vfiles), None)
@@ -446,12 +444,12 @@ class GPUArbiter:
         self,
         *,
         prompt: str,
-        engine: str = "5b",
+        engine: str = "ltx23",
         mode: str = "t2v",
-        width: int = 640,
-        height: int = 384,
-        frames: int = 81,
-        cinema_hd: bool = True,
+        width: int = 768,
+        height: int = 448,
+        frames: int = 25,
+        cinema_hd: bool = False,
         fast_preview: bool = False,
         seed: int | None = None,
         init_img: str | None = None,
@@ -491,10 +489,11 @@ class GPUArbiter:
             ]
             if mode != "t2i":
                 cmd += ["-f", str(int(frames))]
-                if cinema_hd:
-                    cmd += ["--cinema-hd"]
-                if fast_preview:
-                    cmd += ["--fast-preview"]
+                if engine != "ltx23":
+                    if cinema_hd:
+                        cmd += ["--cinema-hd"]
+                    if fast_preview:
+                        cmd += ["--fast-preview"]
             if init_img:
                 cmd += ["-i", init_img]
             if seed is not None:

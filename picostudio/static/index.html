@@ -244,19 +244,21 @@
           <div style="font-size:11.5px;color:var(--mut)">Video/Görsel başlatıldığında çalışan kodlama modeli otomatik kapanır, 6 GB VRAM güvenle PicoVid'e aktarılır.</div>
           <textarea id="vidPrompt" rows="3" placeholder="Sahne açıklamanızı yazın (Türkçe veya İngilizce)..."></textarea>
           <div class="row">
-            <button class="sm" style="flex:1" onclick="enhanceVideoPrompt()">Inkling 2 ile Sinematikleştir</button>
+            <button class="sm" style="flex:1" onclick="enhanceVideoPrompt()">Yerel AI ile Sinematikleştir (Ses+Video)</button>
           </div>
           <div class="row">
             <select id="vidPreset" style="flex:1">
-              <option value="5b|t2v|640|384|81">Wan 2.2 TI2V-5B Turbo (5sn · 640×384 → HD)</option>
-              <option value="5b|t2v|832|480|81">Wan 2.2 TI2V-5B Natif (5sn · 832×480)</option>
-              <option value="14b|t2v|640|384|33">Wan 2.2 14B T2V (Sinematik 2.1sn)</option>
-              <option value="5b|t2i|1024|1024|1">Z-Image-Turbo (Hızlı Görsel · 1024×1024)</option>
+              <option value="ltx23|t2v|768|448|25">LTX-2.3 22B T2V + Ses (768×448 · 24fps · 1.0sn)</option>
+              <option value="ltx23|t2v|640|384|49">LTX-2.3 22B T2V + Ses (640×384 · 24fps · 2.0sn)</option>
+              <option value="ltx23|t2v|768|448|49">LTX-2.3 22B T2V + Ses (768×448 · 24fps · 2.0sn Sinema)</option>
+              <option value="ltx23|studio|768|448|25">Stüdyo: Z-Image → LTX-2.3 I2V + Ses (768×448)</option>
+              <option value="ltx23|t2i|832|480|1">Z-Image-Turbo Görsel (832×480 · 16:9 Hızlı)</option>
             </select>
           </div>
           <div class="row" style="font-size:12px;color:var(--mut)">
-            <label><input type="checkbox" id="chkCinemaHd" checked /> Sinema HD + 32fps</label>
-            <label><input type="checkbox" id="chkFastPrev" /> Hızlı Önizleme (~2sn)</label>
+            <label style="display:none"><input type="checkbox" id="chkCinemaHd" /> Sinema HD</label>
+            <label style="display:none"><input type="checkbox" id="chkFastPrev" /> Hızlı Önizleme</label>
+            <span>LTX-2.3 Distilled 1.1 · 8 adım · 48kHz Stereo Ses + 24fps</span>
           </div>
           <div class="row">
             <button id="vidStartBtn" class="purple" style="flex:1" onclick="startMedia()">Üretimi Başlat</button>

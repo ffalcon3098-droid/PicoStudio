@@ -499,12 +499,12 @@ def make_handler(
             if path == "/api/media/start":
                 ok, msg, out_path = arbiter.start_media(
                     prompt=str(body.get("prompt") or ""),
-                    engine=str(body.get("engine") or "5b"),
+                    engine=str(body.get("engine") or "ltx23"),
                     mode=str(body.get("mode") or "t2v"),
-                    width=int(body.get("width") or 640),
-                    height=int(body.get("height") or 384),
-                    frames=int(body.get("frames") or 81),
-                    cinema_hd=bool(body.get("cinema_hd", True)),
+                    width=int(body.get("width") or 768),
+                    height=int(body.get("height") or 448),
+                    frames=int(body.get("frames") or 25),
+                    cinema_hd=bool(body.get("cinema_hd", False)),
                     fast_preview=bool(body.get("fast_preview", False)),
                 )
                 self._json({"ok": ok, "message": msg, "output": out_path}, status=200 if ok else 400)
@@ -517,7 +517,7 @@ def make_handler(
                 raw_p = str(body.get("prompt") or "").strip()
                 use_prefill = "inkling" in (arbiter.coding_model or "").lower()
                 msgs = [
-                    {"role": "system", "content": "Rewrite short scene ideas into one rich, photorealistic English cinematic video prompt (camera motion, lighting, lens, detail, 2-3 sentences). Output ONLY the prompt."},
+                    {"role": "system", "content": "Rewrite short scene ideas into one rich, photorealistic English cinematic video + ambient sound prompt for LTX-2.3 (camera motion, lighting, lens, crisp detail, natural sound effects/ambience, 2-3 sentences). Output ONLY the prompt."},
                     {"role": "user", "content": raw_p},
                 ]
                 if use_prefill:
