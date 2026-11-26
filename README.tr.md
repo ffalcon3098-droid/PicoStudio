@@ -1,13 +1,18 @@
-# PicoStudio v0.4.0 — Birleşik Yerel IDE Pro, Terminal Pro, Git & Çoklu AI Stüdyosu (Kod + Video + Görsel)
+# PicoStudio v0.5.0 — Birleşik Yerel IDE Pro, Cursor Tarzı Ctrl+K, Terminal Pro, Git & Çoklu AI Stüdyosu
 
 > [For English documentation, see README.md](README.md)
 
-**PicoStudio**, elinizdeki yerel **Kodlama Ajanlarını (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** ve **Video/Görsel Motorlarını (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli karanlık Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Görsel Diff** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
+**PicoStudio**, elinizdeki yerel **Kodlama Ajanlarını (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** ve **Video/Görsel Motorlarını (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Görsel Diff** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
 
 ---
 
 ## Öne Çıkan Özellikler
 
+- **Cursor Tarzı `Ctrl+K` Satır İçi AI & Anlık Kod Tanılama (`v0.5.0`):**
+  - Editörde herhangi bir kod bloğunu seçip **`Ctrl+K`** tuşlayın; yerel AI canlı unified diff önizlemesi ve tek tık **Uygula** ile kodu yerinde düzenlesin.
+  - Dosya açarken/kaydederken sıfır gecikmeli **Python (`ast.parse`) & JSON sözdizimi hata çubuğu** (`Satıra Git` ve `AI ile Düzelt`).
+  - **Sürüklenebilir 3 Panel (`Ctrl+B` yan panel aç/kapa), `Ctrl+Shift+P` Komut Paleti, 3 Tema (`Midnight` / `Obsidian` / `Light`) & Yazı Boyutu (`A-/A+`)** kalıcı olarak saklanır.
+  - **Proje Bazlı Kalıcı Sohbet Geçmişi** (hedef repoları kirletmeden `data/chats/` altında) + sohbette **`@dosya` Otomatik Bağlam Tamamlama**.
 - **Kod Editörü Pro (`v0.4.0`):**
   - Sıfır bağımlılıklı gerçek sözdizimi renklendirme (Python, JS/TS/JSX/TSX, JSON, HTML, CSS, PowerShell/Bash, Markdown).
   - Enter'da otomatik girinti, otomatik parantez/tırnak tamamlama (`() [] {} "" ''`), `Shift+Tab` girinti azaltma, `Ctrl+/` yorum satırı aç/kapat, canlı satır/sütun/dil göstergesi.

@@ -12,9 +12,11 @@ Licensed under the Apache License, Version 2.0.
 
 from __future__ import annotations
 
+import difflib
 import json
 import mimetypes
 import pathlib
+import re
 import threading
 import urllib.parse
 import urllib.request
@@ -23,9 +25,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from picostudio import git_ops
+from picostudio import diagnostics, git_ops
 from picostudio.agent import run_agent_stream
 from picostudio.arbiter import GPUArbiter, load_config
+from picostudio.sessions import ChatSessionStore
 from picostudio.terminal import TerminalManager, TerminalSession
 from picostudio.workspace import Workspace
 
@@ -66,10 +69,31 @@ IDE_HTML = r"""<!doctype html>
   button.sm{padding:3px 7px;font-size:11px}
   button:disabled{opacity:.45;cursor:not-allowed}
 
-  .workbench{flex:1;display:grid;grid-template-columns:235px 1fr 410px;min-height:0}
-  .pane{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--b);background:var(--p1)}
-  .pane:last-child{border-right:none}
+  .workbench{flex:1;display:flex;min-height:0;overflow:hidden}
+  .pane{display:flex;flex-direction:column;min-height:0;background:var(--p1);flex-shrink:0}
+  #leftPane{width:240px;min-width:165px;max-width:440px}
+  #rightPane{width:410px;min-width:260px;max-width:640px}
+  .pane.hidden-pane{display:none !important}
+  .vresizer{width:4px;background:var(--b);cursor:col-resize;flex-shrink:0;transition:background .15s}
+  .vresizer:hover,.vresizer.drag{background:var(--acc)}
   .pane-hdr{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-bottom:1px solid var(--b);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);gap:6px}
+  body.theme-obsidian{--bg:#050608;--p1:#0b0d12;--p2:#11151e;--p3:#192030;--b:#20293d;--code:#030406}
+  body.theme-light{--bg:#f8fafc;--p1:#f1f5f9;--p2:#e2e8f0;--p3:#cbd5e1;--b:#cbd5e1;--txt:#0f172a;--mut:#475569;--acc:#0284c7;--acc2:#4f46e5;--code:#ffffff}
+  body.theme-light .gutter{background:#f1f5f9;color:#94a3b8;border-right-color:#cbd5e1}
+  body.theme-light .code-hl{color:#0f172a}
+  body.theme-light .tok-kw{color:#7c3aed} body.theme-light .tok-str{color:#15803d} body.theme-light .tok-num{color:#b45309} body.theme-light .tok-com{color:#94a3b8}
+  body.theme-light .titem,body.theme-light .gfile{color:#1e293b}
+  body.theme-light .term-area{background:#0f172a}
+  body.theme-light .msg.user{background:#dbeafe;border-color:#93c5fd}
+  .diag-bar{display:none;align-items:center;gap:8px;padding:5px 10px;background:rgba(239,68,68,.14);border-bottom:1px solid rgba(239,68,68,.4);font-size:11.8px;color:#fca5a5;flex-wrap:wrap}
+  body.theme-light .diag-bar{color:#991b1b;background:#fee2e2}
+  .inline-k{display:none;flex-direction:column;gap:7px;padding:8px 10px;background:#101c33;border-bottom:1px solid #38bdf8;font-size:12px}
+  .inline-k pre{margin:0;padding:7px 8px;background:var(--code);border:1px solid var(--b);border-radius:6px;max-height:140px;overflow:auto;font-family:"Cascadia Code",Consolas,monospace;font-size:11.5px}
+  .chat-sess-bar{display:flex;align-items:center;gap:5px;padding:5px 8px;background:var(--p1);border-bottom:1px solid var(--b)}
+  .chat-sess-bar select{flex:1;min-width:0;padding:3px 6px;font-size:11.5px}
+  .at-menu{display:none;position:absolute;bottom:100%;left:0;right:0;margin-bottom:4px;max-height:170px;overflow-y:auto;background:var(--p1);border:1px solid var(--acc);border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,.55);z-index:50}
+  .at-item{padding:5px 9px;cursor:pointer;font-size:12px;font-family:Consolas,monospace;color:var(--txt)}
+  .at-item:hover,.at-item.sel{background:rgba(56,189,248,.18);color:var(--acc)}
 
   /* Left Explorer + Git Panel */
   .ltabs{display:flex;background:var(--p1);border-bottom:1px solid var(--b)}
@@ -99,7 +123,7 @@ IDE_HTML = r"""<!doctype html>
   .glog b{color:var(--acc);font-family:Consolas,monospace}
 
   /* Center Editor Pro + Visual Diff + Resizable Terminal Pro */
-  .center-col{display:flex;flex-direction:column;min-height:0;background:var(--bg);border-right:1px solid var(--b);overflow:hidden}
+  .center-col{flex:1;min-width:260px;display:flex;flex-direction:column;min-height:0;background:var(--bg);overflow:hidden}
   .editor-area{flex:1;display:flex;flex-direction:column;min-height:90px;overflow:hidden}
   .tabbar{display:flex;align-items:center;background:var(--p1);border-bottom:1px solid var(--b);overflow-x:auto;gap:2px;padding:0 6px}
   .etab{display:flex;align-items:center;gap:6px;padding:7px 11px;font-size:12px;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
@@ -199,20 +223,22 @@ IDE_HTML = r"""<!doctype html>
   .gitem:hover{border-color:#c084fc}
   .gitem .gname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt);margin-top:4px}
   .gitem .gmeta{color:var(--mut);font-size:10px}
-  @media(max-width:1100px){.workbench{grid-template-columns:190px 1fr 340px}}
+  @media(max-width:1100px){#leftPane{width:190px}#rightPane{width:330px}}
 </style>
 </head>
 <body>
 <header>
   <div class="brand">
     <span>PicoStudio IDE</span>
-    <span class="pill">v0.4.0</span>
+    <span class="pill">v0.5.0</span>
     <span id="gpuOwnerPill" class="pill">GPU: Boşta</span>
   </div>
   <div class="row">
     <span style="font-size:12px;color:var(--mut)">Proje:</span>
     <select id="projSel" onchange="switchProject(this.value)"></select>
     <button class="sm" onclick="newProjectPrompt()" title="Yeni proje klasörü oluştur veya aç">+ Yeni Proje</button>
+    <button class="sm" onclick="openCmdPalette()" title="Komut Paleti (Ctrl+Shift+P)">⌘ Komutlar</button>
+    <button class="sm" onclick="cycleTheme()" title="Tema değiştir (Midnight / Obsidian / Light)">◐ Tema</button>
   </div>
   <div class="hdr-right">
     <select id="modelSel" onchange="switchCodingModel(this.value)" title="Aktif Kodlama Modeli"></select>
@@ -225,7 +251,7 @@ IDE_HTML = r"""<!doctype html>
 
 <div class="workbench">
   <!-- LEFT: EXPLORER + GIT -->
-  <section class="pane">
+  <section id="leftPane" class="pane">
     <div class="ltabs">
       <div id="ltabFiles" class="ltab active" onclick="switchLeftTab('files')">Dosyalar</div>
       <div id="ltabGit" class="ltab" onclick="switchLeftTab('git')">Git <span id="gitBadge" class="gbadge">0</span></div>
@@ -267,6 +293,7 @@ IDE_HTML = r"""<!doctype html>
       <div id="gitScroll" class="git-scroll"></div>
     </div>
   </section>
+  <div id="leftResizer" class="vresizer" title="Sol paneli boyutlandır"></div>
 
   <!-- CENTER: EDITOR PRO + VISUAL DIFF + TERMINAL PRO -->
   <section class="center-col">
@@ -276,12 +303,32 @@ IDE_HTML = r"""<!doctype html>
         <span id="activeFileLbl">Dosya seçilmedi</span>
         <span id="cursorStatus" style="font-size:11px;color:#64748b"></span>
         <div style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap">
-          <button class="sm" onclick="toggleFindBar(true)" title="Dosya içi bul / değiştir (Ctrl+F)">Bul (Ctrl+F)</button>
+          <button class="sm purple" onclick="openInlineEditBar()" title="Seçili kodu AI ile satır içi düzenle (Ctrl+K)">✨ Ctrl+K</button>
+          <button class="sm" onclick="toggleFindBar(true)" title="Dosya içi bul / değiştir (Ctrl+F)">Bul</button>
+          <button class="sm" onclick="adjustFontSize(-1)" title="Yazıyı küçült">A-</button>
+          <button class="sm" onclick="adjustFontSize(1)" title="Yazıyı büyüt">A+</button>
           <button class="sm primary" onclick="saveActiveFile()">Kaydet (Ctrl+S)</button>
           <button class="sm" onclick="askAiAboutFile('Bu dosyadaki olasi buglari ve iyilestirmeleri bul:')">Bug Bul</button>
           <button class="sm" onclick="askAiAboutFile('Bu dosya icin temiz bir refactor onerisi ve tam kodu ver:')">Refactor</button>
           <button class="sm" onclick="askAiAboutFile('Bu dosya icin unittest birim testleri yaz:')">Test Yaz</button>
           <button class="sm" onclick="closeCenterOverlays()">Editöre Dön</button>
+        </div>
+      </div>
+      <div id="diagBar" class="diag-bar"></div>
+      <div id="inlineKBar" class="inline-k">
+        <div class="row" style="gap:6px">
+          <span class="pill">✨ Ctrl+K Satır İçi AI</span>
+          <input id="inlineKInp" style="flex:1" placeholder="Seçili koda ne yapılsın? (örn: hata yakalama ekle, async yap, docstring yaz)..." onkeydown="if(event.key==='Enter')runInlineEdit();if(event.key==='Escape')closeInlineEditBar();" />
+          <button id="inlineKRunBtn" class="sm primary" onclick="runInlineEdit()">Önizle</button>
+          <button class="sm" onclick="closeInlineEditBar()">×</button>
+        </div>
+        <div id="inlineKPreview" style="display:none;flex-direction:column;gap:6px">
+          <pre id="inlineKDiff"></pre>
+          <div class="row" style="gap:6px">
+            <span id="inlineKStats" style="font-size:11.5px;color:var(--mut)"></span>
+            <button class="sm primary" style="margin-left:auto" onclick="applyInlineEdit()">✓ Değişikliği Uygula</button>
+            <button class="sm danger" onclick="closeInlineEditBar()">İptal</button>
+          </div>
         </div>
       </div>
       <div id="findBar" class="find-bar">
@@ -340,20 +387,26 @@ IDE_HTML = r"""<!doctype html>
       </div>
     </div>
   </section>
+  <div id="rightResizer" class="vresizer" title="Sağ paneli boyutlandır"></div>
 
   <!-- RIGHT: AI CODING AGENT + VIDEO/IMAGE STUDIO -->
-  <section class="pane">
+  <section id="rightPane" class="pane">
     <div class="rtabs">
-      <div id="rtabCode" class="rtab active" onclick="switchRightTab('code')">Kod Ajanı (Inkling 2)</div>
-      <div id="rtabVid" class="rtab" onclick="switchRightTab('media')">Video &amp; Görsel (Wan 2.2)</div>
+      <div id="rtabCode" class="rtab active" onclick="switchRightTab('code')">Kod Ajanı v2</div>
+      <div id="rtabVid" class="rtab" onclick="switchRightTab('media')">Video &amp; Görsel</div>
     </div>
 
     <!-- TAB 1: CODING AGENT -->
     <div id="rightCode" class="rbody">
+      <div class="chat-sess-bar">
+        <select id="chatSessSel" onchange="selectChatSession(this.value)" title="Proje sohbet geçmişi"></select>
+        <button class="sm" onclick="newChatSession()" title="Yeni sohbet başlat">+ Yeni</button>
+        <button class="sm danger" onclick="deleteCurrentChatSession()" title="Sohbeti sil">×</button>
+      </div>
       <div id="chatFeed" class="chat-feed">
         <div class="msg">
-          <div class="msg-hdr"><span>PicoStudio Ajan</span><span>6 GB VRAM Hazır</span></div>
-          <b>Inkling 2 Mini</b> burada açık dosyayı okuyabilir, kod üretebilir ve ürettiği kod bloğunu tek tıkla <b>Editöre Uygula</b> ile kaydedebilir. Video üretmek istediğinde <b>GPU Nöbetçisi</b> VRAM'i otomatik devreder.
+          <div class="msg-hdr"><span>PicoStudio Ajan v2</span><span>6 GB VRAM Hazır</span></div>
+          <b>@dosya</b> yazarak herhangi bir dosyayı doğrudan bağlama ekleyebilir, editörde <b>Ctrl+K</b> ile satır içi AI düzenleme yapabilir, <b>Planla + Onayla</b> veya <b>Oto-Test</b> ile çok dosyalı görevler çalıştırabilirsiniz.
         </div>
       </div>
       <div class="chat-ctrl">
@@ -367,10 +420,11 @@ IDE_HTML = r"""<!doctype html>
           <label title="Ajan dosya düzenledikten sonra proje testlerini otomatik koşar; hata çıkarsa kendi düzeltir"><input type="checkbox" id="chkAutoVerify" checked /> Oto-Test</label>
           <label style="cursor:pointer"><span class="pill">+ Görsel</span><input id="chatImg" type="file" accept="image/*" style="display:none" onchange="onChatImg(event)" /></label>
           <span id="chatImgTag" style="display:none" class="pill ok">Görsel eklendi</span>
-          <button class="sm" style="margin-left:auto" onclick="clearChat()">Temizle</button>
+          <button class="sm" style="margin-left:auto" onclick="newChatSession()">Temizle</button>
         </div>
-        <div class="row" style="align-items:flex-end">
-          <textarea id="chatInp" rows="2" style="flex:1;resize:vertical" placeholder="Kod görevinizi yazın (Ctrl+Enter)..." onkeydown="if(event.ctrlKey&&event.key==='Enter')sendAgent()"></textarea>
+        <div class="row" style="align-items:flex-end;position:relative">
+          <div id="atMenu" class="at-menu"></div>
+          <textarea id="chatInp" rows="2" style="flex:1;resize:vertical" placeholder="Görev yazın (@dosya bağlam · Ctrl+Enter gönder)..." oninput="onChatInpChange()" onkeydown="onChatInpKey(event)"></textarea>
           <button id="chatSendBtn" class="primary" style="height:48px;min-width:68px" onclick="sendAgent()">Gönder</button>
           <button id="chatAbortBtn" class="danger" style="height:48px;display:none" onclick="abortAgent()">Dur</button>
         </div>
@@ -427,6 +481,14 @@ IDE_HTML = r"""<!doctype html>
   <div class="qo-modal">
     <input id="quickOpenInp" placeholder="Dosya adına göre hızlı aç (Ctrl+P)..." oninput="renderQuickOpen()" onkeydown="onQuickOpenKey(event)" />
     <div id="quickOpenList" class="qo-list"></div>
+  </div>
+</div>
+
+<!-- COMMAND PALETTE MODAL (Ctrl+Shift+P) -->
+<div id="cmdPaletteBackdrop" class="qo-backdrop" onclick="if(event.target===this)closeCmdPalette()">
+  <div class="qo-modal">
+    <input id="cmdPaletteInp" placeholder="Komut ara (Ctrl+Shift+P)..." oninput="renderCmdPalette()" onkeydown="onCmdPaletteKey(event)" />
+    <div id="cmdPaletteList" class="qo-list"></div>
   </div>
 </div>
 
@@ -661,15 +723,306 @@ editor.addEventListener('keydown', e=>{
   }
 });
 
-/* Global Shortcuts: Ctrl+P Quick Open, Ctrl+F Find */
+/* Global Shortcuts: Ctrl+P Quick Open, Ctrl+Shift+P Command Palette, Ctrl+K Inline Edit, Ctrl+B Sidebar */
 window.addEventListener('keydown', e=>{
-  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='p'){
+  if((e.ctrlKey||e.metaKey) && e.shiftKey && e.key.toLowerCase()==='p'){
+    e.preventDefault(); openCmdPalette();
+  }else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='p'){
     e.preventDefault(); openQuickOpen();
+  }else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='k'){
+    e.preventDefault(); openInlineEditBar();
+  }else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='b'){
+    e.preventDefault(); togglePane(e.shiftKey ? 'rightPane' : 'leftPane');
   }else if(e.key==='Escape'){
-    if(document.getElementById('quickOpenBackdrop').style.display==='flex') closeQuickOpen();
+    if(document.getElementById('cmdPaletteBackdrop').style.display==='flex') closeCmdPalette();
+    else if(document.getElementById('quickOpenBackdrop').style.display==='flex') closeQuickOpen();
+    else if(document.getElementById('inlineKBar').style.display==='flex') closeInlineEditBar();
     else if(document.getElementById('findBar').style.display==='flex') toggleFindBar(false);
   }
 });
+
+/* ========== V0.5.0 POWER FEATURES: THEMES, FONT, RESIZERS, CMD PALETTE, CTRL+K, DIAGNOSTICS, CHAT SESSIONS, @FILE ========== */
+const THEMES = ['midnight', 'obsidian', 'light'];
+let currentTheme = localStorage.getItem('ps_theme') || 'midnight';
+let editorFontPx = parseInt(localStorage.getItem('ps_font_px') || '13', 10) || 13;
+let currentChatId = null;
+let inlineEditState = null;
+
+function applyTheme(t){
+  currentTheme = THEMES.includes(t) ? t : 'midnight';
+  document.body.classList.remove('theme-obsidian', 'theme-light');
+  if(currentTheme === 'obsidian') document.body.classList.add('theme-obsidian');
+  if(currentTheme === 'light') document.body.classList.add('theme-light');
+  localStorage.setItem('ps_theme', currentTheme);
+}
+function cycleTheme(){
+  const idx = (THEMES.indexOf(currentTheme) + 1) % THEMES.length;
+  applyTheme(THEMES[idx]);
+}
+function applyFontSize(px){
+  editorFontPx = Math.max(11, Math.min(20, px));
+  const sz = editorFontPx + 'px';
+  editor.style.fontSize = sz; codeHL.style.fontSize = sz; gutter.style.fontSize = sz;
+  localStorage.setItem('ps_font_px', String(editorFontPx));
+}
+function adjustFontSize(delta){ applyFontSize(editorFontPx + delta); }
+
+function togglePane(id){
+  const el = document.getElementById(id);
+  if(el) el.classList.toggle('hidden-pane');
+}
+
+(function initHorizontalResizers(){
+  function bind(resizerId, paneId, fromRight, storageKey){
+    const bar = document.getElementById(resizerId);
+    const pane = document.getElementById(paneId);
+    const saved = parseInt(localStorage.getItem(storageKey) || '0', 10);
+    if(saved >= 165 && saved <= 640) pane.style.width = saved + 'px';
+    let drag = false, sx = 0, sw = 0;
+    bar.addEventListener('mousedown', e=>{
+      drag = true; sx = e.clientX; sw = pane.offsetWidth;
+      bar.classList.add('drag'); document.body.style.userSelect = 'none';
+    });
+    window.addEventListener('mousemove', e=>{
+      if(!drag) return;
+      const dx = fromRight ? (sx - e.clientX) : (e.clientX - sx);
+      const nw = Math.max(165, Math.min(640, sw + dx));
+      pane.style.width = nw + 'px';
+      localStorage.setItem(storageKey, String(nw));
+    });
+    window.addEventListener('mouseup', ()=>{
+      if(!drag) return; drag = false; bar.classList.remove('drag'); document.body.style.userSelect = '';
+    });
+  }
+  bind('leftResizer', 'leftPane', false, 'ps_left_w');
+  bind('rightResizer', 'rightPane', true, 'ps_right_w');
+})();
+
+/* Command Palette (Ctrl+Shift+P) */
+const IDE_COMMANDS = [
+  {label:'Dosya: Hızlı Aç (Ctrl+P)', run:()=>openQuickOpen()},
+  {label:'Editör: Satır İçi AI Düzenle (Ctrl+K)', run:()=>openInlineEditBar()},
+  {label:'Editör: Dosya İçi Bul & Değiştir (Ctrl+F)', run:()=>toggleFindBar(true)},
+  {label:'Editör: Aktif Dosyayı Kaydet (Ctrl+S)', run:()=>saveActiveFile()},
+  {label:'Editör: Yazı Boyutunu Büyüt (A+)', run:()=>adjustFontSize(1)},
+  {label:'Editör: Yazı Boyutunu Küçült (A-)', run:()=>adjustFontSize(-1)},
+  {label:'Görünüm: Tema Değiştir (Midnight / Obsidian / Light)', run:()=>cycleTheme()},
+  {label:'Görünüm: Sol Paneli Gizle/Göster (Ctrl+B)', run:()=>togglePane('leftPane')},
+  {label:'Görünüm: Sağ AI Panelini Gizle/Göster (Ctrl+Shift+B)', run:()=>togglePane('rightPane')},
+  {label:'Git: Git & Diff Paneline Geç', run:()=>switchLeftTab('git')},
+  {label:'Git: Tüm Değişikliklerin Diff Önizlemesi', run:()=>openGitDiff('', false)},
+  {label:'Terminal: Yeni Sekme Aç', run:()=>createTerminalTab()},
+  {label:'Terminal: Proje Testlerini Çalıştır', run:()=>runTerm('py -m unittest discover -s tests -v')},
+  {label:'Terminal: Büyüt / Küçült', run:()=>toggleTermMax()},
+  {label:'Ajan: Yeni Sohbet Başlat', run:()=>newChatSession()},
+  {label:'Ajan: Planla + Onayla Moduna Geç', run:()=>{document.getElementById('agentMode').value='plan';}},
+  {label:'GPU: Kodlama AI Başlat/Durdur', run:()=>toggleCodingEngine()},
+  {label:'GPU: Tüm GPU Belleğini Boşalt', run:()=>stopAllGpu()},
+];
+let cmdFiltered = []; let cmdSel = 0;
+function openCmdPalette(){
+  document.getElementById('cmdPaletteBackdrop').style.display = 'flex';
+  const inp = document.getElementById('cmdPaletteInp');
+  inp.value = ''; inp.focus(); cmdSel = 0; renderCmdPalette();
+}
+function closeCmdPalette(){ document.getElementById('cmdPaletteBackdrop').style.display = 'none'; }
+function renderCmdPalette(){
+  const q = document.getElementById('cmdPaletteInp').value.trim();
+  cmdFiltered = IDE_COMMANDS.map(c=>({cmd:c, s:fuzzyScore(c.label, q)})).filter(x=>x.s>=0).sort((a,b)=>b.s-a.s);
+  if(cmdSel >= cmdFiltered.length) cmdSel = 0;
+  document.getElementById('cmdPaletteList').innerHTML = cmdFiltered.map((x,i)=>
+    `<div class="qo-item${i===cmdSel?' sel':''}" onclick="execCmdIdx(${i})"><span>${escHtml(x.cmd.label)}</span></div>`
+  ).join('') || '<div style="padding:12px 14px;color:var(--mut);font-size:12px">Komut bulunamadı.</div>';
+}
+function execCmdIdx(i){
+  const item = cmdFiltered[i]; closeCmdPalette();
+  if(item) item.cmd.run();
+}
+function onCmdPaletteKey(ev){
+  if(ev.key==='ArrowDown'){ ev.preventDefault(); cmdSel = Math.min(cmdFiltered.length-1, cmdSel+1); renderCmdPalette(); }
+  else if(ev.key==='ArrowUp'){ ev.preventDefault(); cmdSel = Math.max(0, cmdSel-1); renderCmdPalette(); }
+  else if(ev.key==='Enter' && cmdFiltered[cmdSel]){ ev.preventDefault(); execCmdIdx(cmdSel); }
+  else if(ev.key==='Escape'){ closeCmdPalette(); }
+}
+
+/* Instant Syntax Diagnostics (Problems Bar) */
+function renderDiagnostics(diags){
+  const bar = document.getElementById('diagBar');
+  if(!diags || !diags.length){ bar.style.display='none'; bar.innerHTML=''; return; }
+  const d = diags[0];
+  bar.style.display = 'flex';
+  bar.innerHTML = `<b>⚠ Satır ${d.line}:${d.col}</b><span style="flex:1">${escHtml(d.message)}</span>`
+    + `<button class="sm" onclick="gotoEditorLine(${d.line})">Satıra Git</button>`
+    + `<button class="sm primary" onclick="askAiFixDiag(${d.line}, '${escHtml(d.message).replace(/'/g,"\\'")}')">AI ile Düzelt</button>`;
+}
+async function checkActiveDiagnostics(){
+  if(!activeTab) { renderDiagnostics([]); return; }
+  try{
+    const r = await fetch('/api/editor/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:activeTab, content:editor.value})}).then(x=>x.json());
+    renderDiagnostics(r.diagnostics || []);
+  }catch(e){}
+}
+function askAiFixDiag(line, msg){
+  switchRightTab('code');
+  document.getElementById('agentMode').value = 'agent';
+  document.getElementById('chatInp').value = `@${activeTab} dosyasının ${line}. satırındaki şu sözdizimi hatasını düzelt: ${msg}`;
+  sendAgent();
+}
+
+/* Cursor-Style Ctrl+K Inline Edit */
+function openInlineEditBar(){
+  if(!activeTab){ alert('Önce bir dosya açın.'); return; }
+  const s = editor.selectionStart, end = editor.selectionEnd;
+  inlineEditState = {
+    start: s, end: end,
+    selection: editor.value.slice(s, end),
+    replacement: null,
+  };
+  const bar = document.getElementById('inlineKBar');
+  bar.style.display = 'flex';
+  document.getElementById('inlineKPreview').style.display = 'none';
+  const inp = document.getElementById('inlineKInp');
+  inp.value = '';
+  inp.placeholder = inlineEditState.selection
+    ? `Seçili ${inlineEditState.selection.split('\n').length} satıra ne yapılsın?...`
+    : 'Aktif dosyaya ne yapılsın? (seçim yoksa tüm dosya düzenlenir)...';
+  inp.focus();
+}
+function closeInlineEditBar(){
+  document.getElementById('inlineKBar').style.display = 'none';
+  inlineEditState = null; editor.focus();
+}
+async function runInlineEdit(){
+  if(!inlineEditState || !activeTab) return;
+  const instr = document.getElementById('inlineKInp').value.trim();
+  if(!instr) return;
+  const btn = document.getElementById('inlineKRunBtn');
+  btn.disabled = true; btn.textContent = 'Üretiliyor...';
+  try{
+    const r = await fetch('/api/editor/inline-edit',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        path: activeTab, content: editor.value,
+        selection: inlineEditState.selection, instruction: instr,
+        start: inlineEditState.start, end: inlineEditState.end,
+      })
+    });
+    const j = await r.json();
+    if(!r.ok || j.replacement == null){ alert(j.error || 'Düzenleme üretilemedi.'); return; }
+    inlineEditState.replacement = j.replacement;
+    document.getElementById('inlineKDiff').textContent = j.diff || j.replacement;
+    document.getElementById('inlineKStats').textContent = `+${j.added||0} / -${j.removed||0} satır`;
+    document.getElementById('inlineKPreview').style.display = 'flex';
+  }finally{
+    btn.disabled = false; btn.textContent = 'Önizle';
+  }
+}
+function applyInlineEdit(){
+  if(!inlineEditState || inlineEditState.replacement == null) return;
+  const val = editor.value;
+  if(inlineEditState.selection){
+    editor.value = val.slice(0, inlineEditState.start) + inlineEditState.replacement + val.slice(inlineEditState.end);
+    editor.selectionStart = inlineEditState.start;
+    editor.selectionEnd = inlineEditState.start + inlineEditState.replacement.length;
+  }else{
+    editor.value = inlineEditState.replacement;
+  }
+  editor.dispatchEvent(new Event('input'));
+  closeInlineEditBar();
+  saveActiveFile();
+}
+
+/* Persistent Per-Project Chat Sessions + @file Autocomplete */
+let atMatches = []; let atSel = 0; let atStartPos = -1;
+function onChatInpChange(){
+  const inp = document.getElementById('chatInp');
+  const pos = inp.selectionStart || 0;
+  const before = inp.value.slice(0, pos);
+  const m = before.match(/(?:^|\s)@([A-Za-z0-9_.\-\/]*)$/);
+  const menu = document.getElementById('atMenu');
+  if(!m){ menu.style.display='none'; atStartPos=-1; return; }
+  atStartPos = pos - m[1].length - 1;
+  const q = m[1];
+  atMatches = allWorkspaceFiles.map(p=>({p, s:fuzzyScore(p, q)})).filter(x=>x.s>=0).sort((a,b)=>b.s-a.s).slice(0,10);
+  if(!atMatches.length){ menu.style.display='none'; return; }
+  atSel = 0;
+  menu.style.display = 'block';
+  renderAtMenu();
+}
+function renderAtMenu(){
+  const menu = document.getElementById('atMenu');
+  menu.innerHTML = atMatches.map((x,i)=>`<div class="at-item${i===atSel?' sel':''}" onclick="pickAtFile('${escHtml(x.p)}')">@${escHtml(x.p)}</div>`).join('');
+}
+function pickAtFile(path){
+  const inp = document.getElementById('chatInp');
+  const pos = inp.selectionStart || inp.value.length;
+  if(atStartPos >= 0){
+    inp.value = inp.value.slice(0, atStartPos) + '@' + path + ' ' + inp.value.slice(pos);
+    const np = atStartPos + path.length + 2;
+    inp.selectionStart = inp.selectionEnd = np;
+  }
+  document.getElementById('atMenu').style.display = 'none';
+  atStartPos = -1; inp.focus();
+}
+function onChatInpKey(ev){
+  const menu = document.getElementById('atMenu');
+  if(menu.style.display==='block' && atMatches.length){
+    if(ev.key==='ArrowDown'){ ev.preventDefault(); atSel = (atSel+1)%atMatches.length; renderAtMenu(); return; }
+    if(ev.key==='ArrowUp'){ ev.preventDefault(); atSel = (atSel-1+atMatches.length)%atMatches.length; renderAtMenu(); return; }
+    if(ev.key==='Tab' || (ev.key==='Enter' && !ev.ctrlKey)){ ev.preventDefault(); pickAtFile(atMatches[atSel].p); return; }
+    if(ev.key==='Escape'){ menu.style.display='none'; return; }
+  }
+  if(ev.ctrlKey && ev.key==='Enter'){ ev.preventDefault(); sendAgent(); }
+}
+
+async function loadChatSessions(){
+  try{
+    const r = await fetch('/api/chat/sessions').then(x=>x.json());
+    const sel = document.getElementById('chatSessSel');
+    const items = r.sessions || [];
+    sel.innerHTML = `<option value="">— Mevcut Sohbet —</option>` + items.map(s=>
+      `<option value="${escHtml(s.id)}"${s.id===currentChatId?' selected':''}>${escHtml(s.title)} (${s.count})</option>`
+    ).join('');
+  }catch(e){}
+}
+async function persistCurrentChat(){
+  if(!chatHistory.length) return;
+  try{
+    const r = await fetch('/api/chat/sessions/save',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id: currentChatId, messages: chatHistory})
+    }).then(x=>x.json());
+    if(r && r.id){ currentChatId = r.id; loadChatSessions(); }
+  }catch(e){}
+}
+async function selectChatSession(sid){
+  if(!sid){ newChatSession(); return; }
+  const r = await fetch('/api/chat/session?id='+encodeURIComponent(sid)).then(x=>x.json());
+  if(!r || !r.messages) return;
+  currentChatId = r.id;
+  chatHistory = r.messages;
+  const feed = document.getElementById('chatFeed');
+  feed.innerHTML = '';
+  for(const m of chatHistory){
+    const d = document.createElement('div');
+    d.className = 'msg' + (m.role==='user' ? ' user' : '');
+    const who = m.role==='user' ? 'Sen' : 'Ajan';
+    d.innerHTML = `<div class="msg-hdr"><span>${who}</span><span>Kayıtlı</span></div><div>${m.role==='user'?escHtml(m.content):renderAgentMarkdown(m.content)}</div>`;
+    feed.appendChild(d);
+  }
+  feed.scrollTop = feed.scrollHeight;
+}
+function newChatSession(){
+  currentChatId = null; chatHistory = [];
+  document.getElementById('chatFeed').innerHTML = '';
+  loadChatSessions();
+}
+async function deleteCurrentChatSession(){
+  const sid = document.getElementById('chatSessSel').value || currentChatId;
+  if(!sid){ newChatSession(); return; }
+  await fetch('/api/chat/sessions/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:sid})});
+  newChatSession();
+}
 
 /* In-File Find & Replace */
 function toggleFindBar(show){
@@ -906,7 +1259,7 @@ async function switchProject(path){
   for(const k of Object.keys(openTabs)) delete openTabs[k];
   activeTab = null; editor.value = ''; updateGutter(); renderTabs();
   document.getElementById('activeFileLbl').textContent = 'Dosya seçilmedi';
-  closeCenterOverlays(); loadTree(); pollTerminal(); loadGitStatus(true);
+  closeCenterOverlays(); renderDiagnostics([]); newChatSession(); loadTree(); pollTerminal(); loadGitStatus(true);
 }
 
 async function loadCodingModels(){
@@ -979,7 +1332,7 @@ async function openFile(path){
   activeTab = path;
   editor.value = openTabs[path].content;
   document.getElementById('activeFileLbl').textContent = path;
-  updateGutter(); renderTabs(); loadTree();
+  updateGutter(); renderTabs(); loadTree(); checkActiveDiagnostics();
 }
 
 function renderTabs(){
@@ -1013,7 +1366,12 @@ async function saveActiveFile(){
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({path:activeTab, content:openTabs[activeTab].content})
   });
-  if(r.ok){ openTabs[activeTab].saved = openTabs[activeTab].content; renderTabs(); loadGitStatus(false); }
+  if(r.ok){
+    const j = await r.json().catch(()=>({}));
+    openTabs[activeTab].saved = openTabs[activeTab].content;
+    renderTabs(); loadGitStatus(false);
+    renderDiagnostics(j.diagnostics || []);
+  }
 }
 
 async function newProjectPrompt(){
@@ -1590,6 +1948,7 @@ async function sendAgent(){
       }
     }
     chatHistory.push({role:'assistant', content:full});
+    persistCurrentChat();
   }catch(e){
     aDiv.querySelector('.bd').textContent = (e.name==='AbortError') ? 'Durduruldu.' : ('Bağlantı hatası: ' + e);
   }finally{
@@ -1661,7 +2020,8 @@ function approvePlanAndRun(btnEl){
   sendAgent();
 }
 
-loadProjects(); loadCodingModels(); loadTree(); loadGitStatus(false); pollStatus(); pollTerminal();
+applyTheme(currentTheme); applyFontSize(editorFontPx);
+loadProjects(); loadCodingModels(); loadTree(); loadGitStatus(false); loadChatSessions(); pollStatus(); pollTerminal();
 setInterval(pollStatus, 2500);
 setInterval(loadTermSessions, 3500);
 setInterval(()=>loadGitStatus(false), 6000);
@@ -1671,12 +2031,19 @@ setInterval(()=>loadGitStatus(false), 6000);
 """
 
 
-def make_handler(arbiter: GPUArbiter, ws: Workspace, term_mgr: TerminalManager | TerminalSession) -> type[BaseHTTPRequestHandler]:
+def make_handler(
+    arbiter: GPUArbiter,
+    ws: Workspace,
+    term_mgr: TerminalManager | TerminalSession,
+    chat_store: ChatSessionStore | None = None,
+) -> type[BaseHTTPRequestHandler]:
     if isinstance(term_mgr, TerminalSession):
         mgr = TerminalManager(term_mgr.cwd)
         mgr.sessions = {term_mgr.id: term_mgr}
         mgr.active_id = term_mgr.id
         term_mgr = mgr
+    if chat_store is None:
+        chat_store = ChatSessionStore(pathlib.Path(__file__).resolve().parent.parent / "data" / "chats")
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: Any) -> None:
@@ -1747,6 +2114,13 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term_mgr: TerminalManager |
             if path == "/api/git/log":
                 self._json(git_ops.get_log(ws, limit=int(qs.get("limit", "12") or "12")))
                 return
+            if path == "/api/chat/sessions":
+                self._json({"sessions": chat_store.list_sessions(ws.root)})
+                return
+            if path == "/api/chat/session":
+                rec = chat_store.load_session(ws.root, qs.get("id", ""))
+                self._json(rec if rec else {"error": "Sohbet bulunamadi"}, status=200 if rec else 404)
+                return
             if path == "/api/terminal/sessions":
                 self._json({"sessions": term_mgr.list_sessions()})
                 return
@@ -1814,12 +2188,93 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term_mgr: TerminalManager |
 
             if path == "/api/workspace/file":
                 try:
-                    res = ws.write_file(str(body.get("path") or ""), str(body.get("content") or ""))
-                    self._json({"ok": True, **res})
+                    content = str(body.get("content") or "")
+                    res = ws.write_file(str(body.get("path") or ""), content)
+                    diags = diagnostics.check_syntax(res["path"], content)
+                    self._json({"ok": True, **res, "diagnostics": diags})
                 except PermissionError as exc:
                     self._json({"error": str(exc)}, status=403)
                 except Exception as exc:
                     self._json({"error": str(exc)}, status=400)
+                return
+
+            if path == "/api/editor/check":
+                diags = diagnostics.check_syntax(str(body.get("path") or ""), str(body.get("content") or ""))
+                self._json({"diagnostics": diags})
+                return
+
+            if path == "/api/editor/inline-edit":
+                if arbiter.owner == "media":
+                    self._json({"error": "GPU su an Video/Gorsel uretiminde."}, status=409)
+                    return
+                if arbiter.owner != "coding":
+                    ok, msg = arbiter.start_coding(wait_ready=True)
+                    if not ok:
+                        self._json({"error": msg}, status=503)
+                        return
+                rel_p = str(body.get("path") or "file.py")
+                full_content = str(body.get("content") or "")
+                selection = str(body.get("selection") or "")
+                instruction = str(body.get("instruction") or "").strip()
+                target_code = selection if selection else full_content
+                scope_note = "ONLY the selected snippet" if selection else "the complete updated file"
+                payload = {
+                    "model": arbiter.coding_model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                f"You are an expert inline code editor working on `{rel_p}`. "
+                                f"Apply the user's edit instruction to {scope_note}. "
+                                "Output ONLY the exact replacement code — NO explanations, NO markdown fences."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Instruction: {instruction}\n\n"
+                                f"Code to replace:\n```\n{target_code[:4500]}\n```"
+                            ),
+                        },
+                    ],
+                    "temperature": 0.15,
+                    "max_tokens": 1200,
+                }
+                req = urllib.request.Request(
+                    f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=120) as resp:
+                        res = json.loads(resp.read().decode("utf-8", errors="replace"))
+                    txt = (res["choices"][0]["message"].get("content") or "").strip()
+                    m_blk = re.search(r"```[A-Za-z0-9_+-]*\n([\s\S]*?)```", txt)
+                    rep = m_blk.group(1).rstrip("\n") if m_blk else txt
+                    diff_lines = list(difflib.unified_diff(
+                        target_code.splitlines(), rep.splitlines(),
+                        fromfile=f"a/{rel_p}", tofile=f"b/{rel_p}", n=2, lineterm="",
+                    ))
+                    added = sum(1 for ln in diff_lines if ln.startswith("+") and not ln.startswith("+++"))
+                    removed = sum(1 for ln in diff_lines if ln.startswith("-") and not ln.startswith("---"))
+                    self._json({"replacement": rep, "diff": "\n".join(diff_lines[:120]), "added": added, "removed": removed})
+                except Exception as exc:
+                    self._json({"error": str(exc)}, status=502)
+                return
+
+            if path == "/api/chat/sessions/save":
+                meta = chat_store.save_session(
+                    ws.root,
+                    list(body.get("messages") or []),
+                    session_id=body.get("id"),
+                    title=body.get("title"),
+                )
+                self._json({"ok": True, **meta})
+                return
+
+            if path == "/api/chat/sessions/delete":
+                ok = chat_store.delete_session(ws.root, str(body.get("id") or ""))
+                self._json({"ok": ok})
                 return
 
             if path == "/api/workspace/delete":
@@ -2117,7 +2572,7 @@ def run_ide(
     httpd = PicoStudioHTTPServer((h, p), make_handler(arbiter, ws, term_mgr))
     url = f"http://{h}:{p}/"
     print("============================================================")
-    print(f"  PicoStudio Local IDE v0.4.0 -> {url}")
+    print(f"  PicoStudio Local IDE v0.5.0 -> {url}")
     print(f"  Aktif Proje                 -> {ws.root}")
     print(f"  Kodlama Motoru              -> {arbiter.picocode_dir}")
     print(f"  Video/Gorsel Motoru         -> {arbiter.picovid_dir}")

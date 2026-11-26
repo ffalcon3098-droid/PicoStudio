@@ -248,6 +248,36 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
         return f"ERROR: {exc}", None
 
 
+def extract_at_file_context(ws: Workspace, user_messages: list[dict[str, Any]], max_files: int = 3) -> str:
+    """Resolve @path/to/file references in the latest user prompt and return safe file snippets."""
+    import re
+    if not user_messages:
+        return ""
+    last = user_messages[-1].get("content")
+    if isinstance(last, list):
+        text = " ".join(str(p.get("text") or "") for p in last if isinstance(p, dict) and p.get("type") == "text")
+    else:
+        text = str(last or "")
+    refs = re.findall(r"@([A-Za-z0-9_.\-/\\]+\.[A-Za-z0-9_]+)", text)
+    if not refs:
+        return ""
+    blocks: list[str] = []
+    seen: set[str] = set()
+    for raw_ref in refs:
+        rel = raw_ref.replace("\\", "/").lstrip("/")
+        if rel in seen:
+            continue
+        seen.add(rel)
+        try:
+            data = ws.read_file(rel)
+            blocks.append(f"\nReferenced file `@{data['path']}`:\n```\n{data['content'][:2400]}\n```")
+        except Exception:
+            continue
+        if len(blocks) >= max_files:
+            break
+    return "\n".join(blocks)
+
+
 def run_agent_stream(
     arbiter: GPUArbiter,
     ws: Workspace,
@@ -273,6 +303,7 @@ def run_agent_stream(
       {"type": "error", "error": "..."}
     """
     url = f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions"
+    at_context = extract_at_file_context(ws, user_messages)
 
     # 1) Fast mode: direct complete answer using snapshot (NO tools)
     if mode == "fast":
@@ -284,7 +315,7 @@ def run_agent_stream(
             "You are PicoStudio, a concise local coding assistant. "
             "No tools in fast mode; ALL project context is below. "
             "Never say 'let me read files first'. Answer directly in the user's language.\n\n"
-            f"{snapshot}{active_block}"
+            f"{snapshot}{active_block}{at_context}"
         )
         conv_fast: list[dict[str, Any]] = [{"role": "system", "content": fast_sys}] + list(user_messages)
         yield {"type": "status", "text": "Proje bağlamıyla yanıt üretiliyor..."}
@@ -335,6 +366,7 @@ def run_agent_stream(
             "You are in READ-ONLY PLAN MODE. Do NOT modify files. "
             "Use `list_files`, `read_file`, or `search_code` if needed, then produce a clear, numbered multi-file "
             "implementation plan (1. Hedef Dosyalar, 2. Yapılacak Değişiklikler, 3. Test/Doğrulama) in the user's language."
+            f"{at_context}"
         )
     else:
         sys_prompt = (
@@ -342,6 +374,7 @@ def run_agent_stream(
             f"(root entries: {', '.join(root_items[:25])}).{active_hint} "
             "Use tools (`read_file`, `list_files`, `search_code`, `edit_file`, `write_file`, `run_terminal`) directly when needed. "
             "Prefer `edit_file` for targeted changes. Be brief; reply in the user's language."
+            f"{at_context}"
         )
 
     conv: list[dict[str, Any]] = [{"role": "system", "content": sys_prompt}] + list(user_messages)

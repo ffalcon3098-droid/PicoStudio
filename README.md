@@ -1,13 +1,18 @@
-# PicoStudio v0.4.0 — Unified Local IDE Pro, Terminal Pro, Git & Multi-Model AI Studio (Coding + Video + Image)
+# PicoStudio v0.5.0 — Unified Local IDE Pro, Cursor-Style Ctrl+K, Terminal Pro, Git & Multi-Model AI Studio
 
 > [Türkçe dokümantasyon için README.tr.md](README.tr.md)
 
-**PicoStudio** unifies your local **Coding Agents (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** and **Video/Image Studio (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** into a single zero-dependency **3-pane Dark Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Visual Diff**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **6 GB VRAM GPU Arbiter**.
+**PicoStudio** unifies your local **Coding Agents (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** and **Video/Image Studio (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** into a single zero-dependency **3-pane Dark/Light Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Visual Diff**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **6 GB VRAM GPU Arbiter**.
 
 ---
 
 ## Highlights
 
+- **Cursor-Style `Ctrl+K` Inline AI Edit & Instant Diagnostics (`v0.5.0`):**
+  - Select any code block and press **`Ctrl+K`** to instruct the local LLM with a live unified diff preview and 1-click **Apply**.
+  - Instant zero-dependency **Python (`ast.parse`) & JSON syntax diagnostics** banner on open/save with 1-click *Go to Line* and *Fix with AI*.
+  - **Resizable 3-Pane Layout (`Ctrl+B` sidebar toggle), `Ctrl+Shift+P` Command Palette, 3 Themes (`Midnight` / `Obsidian` / `Light`) & Font Size (`A-/A+`)** persisted in `localStorage`.
+  - **Persistent Per-Project Chat History** (`data/chats/`, never polluting target repos) + live **`@file` Context Autocomplete** in chat.
 - **Code Editor Pro (`v0.4.0`):**
   - Real zero-dependency syntax highlighting (Python, JS/TS/JSX/TSX, JSON, HTML, CSS, PowerShell/Bash, Markdown).
   - Auto-indent on Enter, auto-closing brackets & quotes (`() [] {} "" ''`), `Shift+Tab` dedent, `Ctrl+/` comment toggle, live cursor line/col/language status.

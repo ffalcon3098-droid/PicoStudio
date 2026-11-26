@@ -29,10 +29,11 @@ STUDIO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(STUDIO_ROOT) not in sys.path:
     sys.path.insert(0, str(STUDIO_ROOT))
 
-from picostudio import git_ops
-from picostudio.agent import detect_test_command, execute_tool, run_agent_stream, run_workspace_tests
+from picostudio import diagnostics, git_ops
+from picostudio.agent import detect_test_command, execute_tool, extract_at_file_context, run_agent_stream, run_workspace_tests
 from picostudio.arbiter import GPUArbiter, load_config
 from picostudio.cli import build_parser
+from picostudio.sessions import ChatSessionStore
 from picostudio.terminal import TerminalManager, TerminalSession
 from picostudio.web_ide import make_handler
 from picostudio.workspace import Workspace
@@ -143,7 +144,8 @@ class TestPicoStudioSuite(unittest.TestCase):
             ws = Workspace(td)
             ws.write_file("demo.py", "print('hello')\n")
             term = TerminalManager(td)
-            srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(arb, ws, term))
+            cstore = ChatSessionStore(pathlib.Path(td) / "_chats")
+            srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(arb, ws, term, chat_store=cstore))
             srv.daemon_threads = True
             port = srv.server_address[1]
             t = threading.Thread(target=srv.serve_forever, daemon=True)
@@ -154,12 +156,43 @@ class TestPicoStudioSuite(unittest.TestCase):
                     html = r.read().decode("utf-8")
                     self.assertEqual(r.status, 200)
                     self.assertIn("PicoStudio IDE", html)
-                    self.assertIn("v0.4.0", html)
+                    self.assertIn("v0.5.0", html)
                     self.assertIn("codeHighlight", html)
                     self.assertIn("findBar", html)
                     self.assertIn("quickOpenBackdrop", html)
+                    self.assertIn("cmdPaletteBackdrop", html)
+                    self.assertIn("inlineKBar", html)
+                    self.assertIn("diagBar", html)
+                    self.assertIn("leftResizer", html)
+                    self.assertIn("atMenu", html)
                     self.assertIn("diffViewer", html)
                     self.assertIn("approvePlanAndRun", html)
+
+                # Instant Python syntax diagnostics over HTTP
+                req_chk = urllib.request.Request(
+                    f"{base}/api/editor/check",
+                    data=json.dumps({"path": "bad.py", "content": "def broken(:\n    pass\n"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_chk, timeout=5) as r:
+                    diags = json.loads(r.read().decode("utf-8"))["diagnostics"]
+                    self.assertEqual(len(diags), 1)
+                    self.assertEqual(diags[0]["line"], 1)
+
+                # Persistent Chat Session save/list/load/delete over HTTP
+                req_cs = urllib.request.Request(
+                    f"{base}/api/chat/sessions/save",
+                    data=json.dumps({"messages": [{"role": "user", "content": "Merhaba v0.5"}]}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_cs, timeout=5) as r:
+                    saved_c = json.loads(r.read().decode("utf-8"))
+                    self.assertTrue(saved_c["ok"])
+                    cid = saved_c["id"]
+                with urllib.request.urlopen(f"{base}/api/chat/sessions", timeout=5) as r:
+                    self.assertTrue(any(s["id"] == cid for s in json.loads(r.read().decode("utf-8"))["sessions"]))
 
                 with urllib.request.urlopen(f"{base}/api/git/status", timeout=5) as r:
                     gst = json.loads(r.read().decode("utf-8"))
@@ -381,6 +414,38 @@ class TestPicoStudioSuite(unittest.TestCase):
             finally:
                 mock_srv.shutdown()
                 mock_srv.server_close()
+
+    def test_08_v050_diagnostics_sessions_and_at_context(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            p_a = pathlib.Path(td) / "projA"
+            p_b = pathlib.Path(td) / "projB"
+            p_a.mkdir(); p_b.mkdir()
+            ws = Workspace(p_a)
+            ws.write_file("hello.py", "def ok():\n    return 7\n")
+
+            # Diagnostics: Python + JSON
+            self.assertEqual(diagnostics.check_syntax("hello.py", "def ok():\n    return 7\n"), [])
+            d_py = diagnostics.check_syntax("hello.py", "def bad(:\n    return 7\n")
+            self.assertEqual(len(d_py), 1)
+            self.assertEqual(d_py[0]["line"], 1)
+            self.assertEqual(diagnostics.check_syntax("cfg.json", '{"a": 1}'), [])
+            d_js = diagnostics.check_syntax("cfg.json", '{"a": }')
+            self.assertEqual(len(d_js), 1)
+
+            # @file context injection + traversal protection
+            ctx = extract_at_file_context(ws, [{"role": "user", "content": "incele @hello.py ve @../../Windows/win.ini"}])
+            self.assertIn("return 7", ctx)
+            self.assertNotIn("win.ini", ctx)
+
+            # Per-project isolated ChatSessionStore
+            store = ChatSessionStore(pathlib.Path(td) / "chat_store")
+            s1 = store.save_session(p_a, [{"role": "user", "content": "Proje A sorusu"}])
+            self.assertEqual(len(store.list_sessions(p_a)), 1)
+            self.assertEqual(len(store.list_sessions(p_b)), 0)
+            loaded = store.load_session(p_a, s1["id"])
+            self.assertEqual(loaded["messages"][0]["content"], "Proje A sorusu")
+            self.assertTrue(store.delete_session(p_a, s1["id"]))
+            self.assertEqual(len(store.list_sessions(p_a)), 0)
 
 
 if __name__ == "__main__":
