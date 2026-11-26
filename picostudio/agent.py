@@ -30,26 +30,21 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "list_files",
-            "description": "List files and directories inside the active project workspace (optional relative subdirectory).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "subdir": {"type": "string", "description": "Relative subdirectory path, or empty string for project root."},
-                },
-            },
+            "description": "List files in subdir ('' for root).",
+            "parameters": {"type": "object", "properties": {"subdir": {"type": "string"}}},
         },
     },
     {
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a text/source file from the active project workspace with optional 1-based line range.",
+            "description": "Read text file with 1-based start_line/end_line.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Relative path to the file (e.g. 'README.md' or 'apps/server/src/index.ts')."},
-                    "start_line": {"type": "integer", "description": "Optional 1-based start line (default 1)."},
-                    "end_line": {"type": "integer", "description": "Optional 1-based end line (default 200)."},
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer"},
+                    "end_line": {"type": "integer"},
                 },
                 "required": ["path"],
             },
@@ -59,27 +54,18 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "search_code",
-            "description": "Search for a text substring across source files in the active project.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Case-insensitive text to search for."},
-                },
-                "required": ["query"],
-            },
+            "description": "Grep substring across source files.",
+            "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
         },
     },
     {
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "Create or overwrite a file in the active project workspace.",
+            "description": "Write full content to relative path.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Relative path to write."},
-                    "content": {"type": "string", "description": "Full file content."},
-                },
+                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
                 "required": ["path", "content"],
             },
         },
@@ -88,14 +74,8 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "run_terminal",
-            "description": "Run a shell command in the active project root and return stdout/stderr and exit code (timeout 30s).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "PowerShell command to execute."},
-                },
-                "required": ["command"],
-            },
+            "description": "Run PowerShell command in project root.",
+            "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]},
         },
     },
 ]
@@ -181,35 +161,26 @@ def run_agent_stream(
       {"type": "done", "full_text": "..."}
       {"type": "error", "error": "..."}
     """
-    snapshot = ws.project_context_snapshot(max_chars=3600)
-    active_block = ""
-    if active_file and active_file.get("path"):
-        active_block = (
-            f"\nCurrently open file in IDE editor: `{active_file['path']}`\n"
-            f"```\n{(active_file.get('content') or '')[:3500]}\n```\n"
-        )
-
-    url = f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions"
-
     # Fast mode: direct complete answer using snapshot (NO tools, NO "let me read files" promises!)
     if mode == "fast":
+        snapshot = ws.project_context_snapshot(max_chars=2400)
+        active_block = ""
+        if active_file and active_file.get("path"):
+            active_block = f"\nOpen file `{active_file['path']}`:\n```\n{(active_file.get('content') or '')[:2200]}\n```\n"
         fast_sys = (
-            "You are PicoStudio, an expert local coding assistant inside a Windows IDE.\n"
-            "You have NO file-reading tools in this fast mode — ALL available project files and docs are ALREADY pasted below.\n"
-            "NEVER say 'let me read the files first' or list filenames without analyzing them.\n"
-            "Give a direct, concrete, complete answer RIGHT NOW based on the real project contents below.\n"
-            "Match the user's language (English if they write English, Turkish if they write Turkish).\n\n"
-            f"=== ACTIVE PROJECT SNAPSHOT ===\n{snapshot}\n{active_block}"
+            "You are PicoStudio, a concise local coding assistant. "
+            "No tools in fast mode; ALL project context is below. "
+            "Never say 'let me read files first'. Answer directly in the user's language.\n\n"
+            f"{snapshot}{active_block}"
         )
         conv_fast: list[dict[str, Any]] = [{"role": "system", "content": fast_sys}] + list(user_messages)
         yield {"type": "status", "text": "Proje bağlamıyla yanıt üretiliyor..."}
-        # Language-neutral markdown heading prefill avoids Inkling 2 Mini's lengthy <think> loop
         prefill = "### "
         payload = {
             "model": arbiter.coding_model,
             "messages": conv_fast + [{"role": "assistant", "content": prefill}],
             "temperature": 0.3,
-            "max_tokens": 1800,
+            "max_tokens": 1400,
             "stream": True,
         }
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
@@ -233,12 +204,14 @@ def run_agent_stream(
         yield {"type": "done", "full_text": "".join(full)}
         return
 
+    # Agent mode: keep initial prompt ultra-compact (~450 tokens) so step 1 starts in ~25-40s instead of 4 min!
+    root_items = [x["name"] + ("/" if x["kind"] == "dir" else "") for x in ws.list_tree(max_depth=1, max_items=40)]
+    active_hint = f" Open file: `{active_file['path']}`." if (active_file and active_file.get("path")) else ""
     sys_prompt = (
-        "You are PicoStudio, an expert local coding agent inside a Windows IDE.\n"
-        "You ALWAYS ground your answers in real project files — NEVER invent placeholder code.\n"
-        "Match the user's language (English if they write English, Turkish if they write Turkish).\n"
-        "When you need deeper code inspection, edits, or tests, immediately CALL the provided tools (`read_file`, `search_code`, `write_file`, `run_terminal`) instead of only talking about calling them.\n\n"
-        f"=== ACTIVE PROJECT SNAPSHOT ===\n{snapshot}\n{active_block}"
+        f"You are PicoStudio local coding agent. Workspace: `{ws.root.name}` "
+        f"(root entries: {', '.join(root_items[:25])}).{active_hint} "
+        "Use tools (`read_file`, `list_files`, `search_code`, `write_file`, `run_terminal`) directly when needed. "
+        "Be brief; reply in the user's language."
     )
     conv: list[dict[str, Any]] = [{"role": "system", "content": sys_prompt}] + list(user_messages)
 
@@ -252,12 +225,13 @@ def run_agent_stream(
             "tools": AGENT_TOOLS,
             "tool_choice": "auto",
             "temperature": 0.25,
-            "max_tokens": 1800,
+            "max_tokens": 1200,
             "stream": True,
         }
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
         step_content: list[str] = []
         tool_calls_map: dict[int, dict[str, Any]] = {}
+        r_toks = 0
 
         with urllib.request.urlopen(req, timeout=360) as resp:
             for raw in resp:
@@ -272,6 +246,10 @@ def run_agent_stream(
                 if not ch:
                     continue
                 delta = ch[0].get("delta") or {}
+                if delta.get("reasoning_content"):
+                    r_toks += 1
+                    if r_toks % 15 == 1:
+                        yield {"type": "status", "text": f"Ajan düşünüyor (adım {step}/{max_steps} · {r_toks} tok)..."}
                 if delta.get("content"):
                     step_content.append(delta["content"])
                     final_chunks.append(delta["content"])
