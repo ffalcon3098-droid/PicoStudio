@@ -123,13 +123,15 @@ class GPUArbiter:
             vreg = json.loads(vid_reg_path.read_text(encoding="utf-8"))
             vfiles = vreg.get("files", {})
             checks = [
-                ("wan22-5b", "Wan 2.2 TI2V-5B Turbo (Hızlı 5sn Video)", "wan22_ti2v_5b"),
-                ("wan22-14b-t2v", "Wan 2.2 14B T2V (Sinematik Video)", "wan22_t2v_14b"),
-                ("wan22-14b-i2v", "Wan 2.2 14B I2V (Görselden Video)", "wan22_i2v_low_q4"),
-                ("z-image-turbo", "Z-Image-Turbo (Hızlı Görsel Üretimi)", "z_image_turbo"),
+                ("wan22-5b", "Wan 2.2 TI2V-5B Turbo (Hızlı 5sn Video)", ("wan22_ti2v_5b_turbo_q4", "wan22_ti2v_5b")),
+                ("wan22-14b-t2v", "Wan 2.2 14B T2V (Sinematik Video)", ("wan22_t2v_rapid_v10", "wan22_t2v_14b")),
+                ("wan22-14b-i2v", "Wan 2.2 14B I2V (Görselden Video)", ("wan22_i2v_low_q4", "wan22_i2v_low_q3")),
+                ("z-image-turbo", "Z-Image-Turbo (Hızlı Görsel Üretimi)", ("z_image_turbo_q4_k_m", "z_image_turbo_q4", "z_image_turbo")),
             ]
-            for eid, label, key in checks:
-                fitem = vfiles.get(key)
+            for eid, label, keys in checks:
+                fitem = next((vfiles[k] for k in keys if k in vfiles), None)
+                if fitem is None and eid == "z-image-turbo":
+                    fitem = next((v for k, v in vfiles.items() if "z_image" in k or "zimage" in k), None)
                 if fitem:
                     fpath = self.picovid_dir / fitem.get("path", "")
                     ok = fpath.exists() and fpath.stat().st_size > 100_000_000
