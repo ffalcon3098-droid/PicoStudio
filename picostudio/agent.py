@@ -97,6 +97,30 @@ AGENT_TOOLS: list[dict[str, Any]] = [
 ]
 
 
+KNOWN_TOOL_NAMES = {t["function"]["name"] for t in AGENT_TOOLS}
+
+
+def _extract_fallback_tool_calls(text: str, step: int) -> list[dict[str, Any]]:
+    """Parse JSON tool calls emitted in content by models without native OpenAI tool_calls (e.g. Qwen2.5)."""
+    import re
+    found: list[dict[str, Any]] = []
+    candidates = re.findall(r"```(?:json)?\s*\n(\{[\s\S]*?\})\s*```", text)
+    if not candidates and text.strip().startswith("{") and text.strip().endswith("}"):
+        candidates = [text.strip()]
+    for idx, raw in enumerate(candidates):
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(obj, dict) and obj.get("name") in KNOWN_TOOL_NAMES and isinstance(obj.get("arguments"), dict):
+            found.append({
+                "id": f"fb_{step}_{idx}",
+                "type": "function",
+                "function": {"name": obj["name"], "arguments": json.dumps(obj["arguments"], ensure_ascii=False)},
+            })
+    return found
+
+
 def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
     """Execute one workspace tool safely. Returns (result_text, change_info_or_None)."""
     try:
@@ -299,10 +323,13 @@ def run_agent_stream(
                         entry["function"]["arguments"] += fn["arguments"]
 
         if not tool_calls_map:
-            yield {"type": "done", "full_text": "".join(final_chunks)}
-            return
-
-        tool_calls = [tool_calls_map[k] for k in sorted(tool_calls_map)]
+            fb_calls = _extract_fallback_tool_calls("".join(step_content), step)
+            if not fb_calls:
+                yield {"type": "done", "full_text": "".join(final_chunks)}
+                return
+            tool_calls = fb_calls
+        else:
+            tool_calls = [tool_calls_map[k] for k in sorted(tool_calls_map)]
         conv.append({
             "role": "assistant",
             "content": "".join(step_content) or None,
