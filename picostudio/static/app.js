@@ -820,7 +820,7 @@ async function loadCodingModels(){
   for(const m of (inv.coding_models||[])){
     const o = document.createElement('option');
     o.value = m.id;
-    const tag = m.id==='qwen25-coder-7b' ? '⚡ %100 GPU' : (m.id==='inkling2-mini' ? '🧠 Derin+Vision' : 'MoE');
+    const tag = m.id==='qwen3-coder-30b' ? '🚀 30B/3B MoE · Kod' : (m.id==='inkling2-mini' ? '🧠 Derin+Vision' : '⚡ 7B GPU');
     o.textContent = `${m.id} (${tag})${m.installed?'':' [Eksik]'}`;
     o.disabled = !m.installed;
     if(lastStatus && lastStatus.coding_model===m.id) o.selected = true;

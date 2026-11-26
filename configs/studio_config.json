@@ -7,7 +7,7 @@
   "ide_host": "127.0.0.1",
   "ide_port": 7900,
   "llm_port": 8080,
-  "default_coding_model": "qwen25-coder-7b",
+  "default_coding_model": "qwen3-coder-30b",
   "coding_use_draft": false,
   "coding_use_vision": true,
   "auto_resume_coding_after_media": false
