@@ -25,7 +25,7 @@ from typing import Any
 
 from picostudio.agent import run_agent_stream
 from picostudio.arbiter import GPUArbiter, load_config
-from picostudio.terminal import TerminalSession
+from picostudio.terminal import TerminalManager, TerminalSession
 from picostudio.workspace import Workspace
 
 
@@ -82,9 +82,9 @@ IDE_HTML = r"""<!doctype html>
   .hit{padding:5px 9px;border-bottom:1px solid #162033;cursor:pointer}
   .hit:hover{background:var(--p2)}
 
-  /* Center Editor + Terminal */
-  .center-col{display:grid;grid-template-rows:1fr 225px;min-height:0;background:var(--bg);border-right:1px solid var(--b)}
-  .editor-area{display:flex;flex-direction:column;min-height:0}
+  /* Center Editor + Resizable Terminal Pro */
+  .center-col{display:flex;flex-direction:column;min-height:0;background:var(--bg);border-right:1px solid var(--b);overflow:hidden}
+  .editor-area{flex:1;display:flex;flex-direction:column;min-height:90px;overflow:hidden}
   .tabbar{display:flex;align-items:center;background:var(--p1);border-bottom:1px solid var(--b);overflow-x:auto;gap:2px;padding:0 6px}
   .etab{display:flex;align-items:center;gap:6px;padding:7px 11px;font-size:12px;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
   .etab.active{color:var(--txt);border-bottom-color:var(--acc);background:var(--bg)}
@@ -97,11 +97,27 @@ IDE_HTML = r"""<!doctype html>
   #mediaViewer{display:none;flex:1;align-items:center;justify-content:center;flex-direction:column;gap:10px;padding:16px;background:#05080f}
   #mediaViewer video,#mediaViewer img{max-width:100%;max-height:78%;border-radius:8px;border:1px solid var(--b)}
 
-  /* Embedded Terminal */
-  .term-area{display:flex;flex-direction:column;min-height:0;border-top:2px solid var(--b);background:#070a10}
+  /* Terminal Pro Resizer, Multi-Tab, ANSI & Warp AI Bar */
+  .resizer{height:5px;background:var(--b);cursor:row-resize;flex-shrink:0;transition:background .15s}
+  .resizer:hover,.resizer.drag{background:var(--acc)}
+  .term-area{height:255px;min-height:36px;display:flex;flex-direction:column;background:#070a10;flex-shrink:0}
+  .term-area.collapsed{height:36px !important}
+  .term-area.collapsed .term-body{display:none}
+  .term-body{flex:1;display:flex;flex-direction:column;min-height:0}
+  .ttabbar{display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--p1);border-bottom:1px solid var(--b);overflow-x:auto;flex-shrink:0}
+  .ttab{display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:6px;font-size:11.5px;color:var(--mut);cursor:pointer;background:transparent;border:1px solid transparent;white-space:nowrap}
+  .ttab.active{color:var(--txt);background:var(--p2);border-color:var(--b)}
+  .ttab .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block;animation:pulse 1.1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
   .term-out{flex:1;overflow-y:auto;padding:8px 11px;font-family:"Cascadia Code",Consolas,monospace;font-size:12px;line-height:1.45;color:#cbd5e1;white-space:pre-wrap;word-break:break-word}
+  .tlink{color:#38bdf8;text-decoration:underline;cursor:pointer}
+  .tlink:hover{color:#7dd3fc}
+  .nl-bar{display:none;align-items:center;gap:8px;padding:6px 10px;background:#101c31;border-top:1px solid #2b4570;font-size:12px;flex-wrap:wrap}
+  .nl-bar code{background:#070c16;padding:3px 7px;border-radius:5px;color:#7dd3fc;font-family:"Cascadia Code",Consolas,monospace;font-size:12px}
+  .comp-bar{display:none;gap:5px;padding:4px 10px;background:#0b1220;border-top:1px solid #1b2740;flex-wrap:wrap;font-size:11px;font-family:Consolas,monospace;color:#93c5fd}
   .term-inp{display:flex;align-items:center;gap:6px;padding:6px 10px;border-top:1px solid #1b253a;background:var(--p1)}
-  .term-inp span{font-family:Consolas,monospace;font-size:12px;color:var(--acc)}
+  .term-inp .prompt-tag{font-family:Consolas,monospace;font-size:12px;font-weight:700;color:var(--acc);white-space:nowrap}
+  .term-inp .prompt-tag.stdin{color:var(--warn)}
   .term-inp input{flex:1;font-family:Consolas,monospace;font-size:12.5px}
 
   /* Right AI & Media Pane */
@@ -135,7 +151,7 @@ IDE_HTML = r"""<!doctype html>
 <header>
   <div class="brand">
     <span>PicoStudio IDE</span>
-    <span class="pill">v0.2.0</span>
+    <span class="pill">v0.3.0</span>
     <span id="gpuOwnerPill" class="pill">GPU: Boşta</span>
   </div>
   <div class="row">
@@ -191,22 +207,38 @@ IDE_HTML = r"""<!doctype html>
       </div>
     </div>
 
-    <div class="term-area">
-      <div class="pane-hdr" style="padding:5px 10px">
-        <span>Terminal <span id="termCwd" style="font-weight:400;text-transform:none;color:var(--acc)"></span></span>
-        <div class="row" style="gap:5px">
+    <div id="termResizer" class="resizer" title="Terminali boyutlandırmak için sürükleyin"></div>
+    <div id="termArea" class="term-area">
+      <div class="ttabbar">
+        <div id="termTabs" class="row" style="gap:4px"></div>
+        <button class="sm" onclick="createTerminalTab()" title="Yeni terminal sekmesi">+</button>
+        <span id="termCwd" style="font-size:11px;color:var(--acc);margin-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px"></span>
+        <div class="row" style="margin-left:auto;gap:4px">
           <button class="sm" onclick="runTerm('py -m unittest discover -s tests -v')">Test Koş</button>
-          <button class="sm" onclick="runTerm('git status -s')">git status</button>
-          <button class="sm" onclick="sendTermErrorToAi()">Hatayı AI'ya Gönder</button>
+          <button class="sm" onclick="runTerm('git status -s')">git</button>
+          <button class="sm" onclick="sendTermErrorToAi()" title="Terminal çıktısını AI'ya gönder">AI Çöz</button>
           <button class="sm danger" onclick="stopTerm()">Durdur</button>
           <button class="sm" onclick="clearTerm()">Temizle</button>
+          <button class="sm" onclick="toggleTermMax()" title="Büyüt/Küçült">⤢</button>
+          <button class="sm" onclick="toggleTermCollapse()" title="Daralt/Aç">▾</button>
         </div>
       </div>
-      <div id="termOut" class="term-out"></div>
-      <div class="term-inp">
-        <span>PS&gt;</span>
-        <input id="termInp" placeholder="Komut yazın (Enter ile çalıştırın; cd desteklenir)..." onkeydown="if(event.key==='Enter'){runTerm(this.value);this.value='';}" />
-        <button class="sm primary" onclick="const i=document.getElementById('termInp');runTerm(i.value);i.value='';">Çalıştır</button>
+      <div class="term-body">
+        <div id="termOut" class="term-out"></div>
+        <div id="compBar" class="comp-bar"></div>
+        <div id="nlCmdBar" class="nl-bar">
+          <span class="pill">AI Komut</span>
+          <code id="nlCmdCode"></code>
+          <span id="nlCmdDesc" style="color:var(--mut);font-size:11.5px;flex:1"></span>
+          <button class="sm primary" onclick="acceptNlCmd(true)">Çalıştır</button>
+          <button class="sm" onclick="acceptNlCmd(false)">Düzenle</button>
+          <button class="sm danger" onclick="hideNlBar()">İptal</button>
+        </div>
+        <div class="term-inp">
+          <span id="termPromptTag" class="prompt-tag">PS&gt;</span>
+          <input id="termInp" autocomplete="off" placeholder="Komut yazın (↑↓ geçmiş · Tab tamamla · ? ile Türkçe AI komut)..." onkeydown="onTermKey(event)" />
+          <button id="termRunBtn" class="sm primary" onclick="submitTermInput()">Çalıştır</button>
+        </div>
       </div>
     </div>
   </section>
@@ -486,29 +518,313 @@ async function searchProject(){
   box.innerHTML = r.hits.length ? r.hits.map(h=>`<div class="hit" onclick="openFile('${escHtml(h.path)}')"><b>${escHtml(h.path)}:${h.line}</b><div style="color:var(--mut)">${escHtml(h.text)}</div></div>`).join('') : '<div class="hit">Sonuç bulunamadı</div>';
 }
 
-/* Terminal */
+/* ========== TERMINAL PRO (Multi-Tab, Live SSE, ANSI, Clickable Links, Stdin, Tab-Complete, ? AI) ========== */
+let activeTermId = null;
+let termRunning = false;
+let termEventSrc = null;
+let termHistory = [];
+let termHistIdx = -1;
+let pendingNlCmd = '';
+let termSavedHeight = 255;
+let termMaximized = false;
+
+const ANSI_COLORS = {
+  30:'#475569',31:'#f87171',32:'#4ade80',33:'#fbbf24',34:'#60a5fa',35:'#c084fc',36:'#38bdf8',37:'#e2e8f0',
+  90:'#64748b',91:'#fca5a5',92:'#86efac',93:'#fde047',94:'#93c5fd',95:'#d8b4fe',96:'#67e8f9',97:'#ffffff'
+};
+
+function linkifyPaths(safeHtml){
+  // 1) Python traceback: File "C:\...\foo.py", line 42
+  safeHtml = safeHtml.replace(/File &quot;([^&]+?)&quot;, line (\d+)/g, (m, p, ln)=>{
+    const clean = p.replace(/\\/g, '/');
+    return `File "<span class="tlink" onclick="jumpFromTerm('${escHtml(clean)}',${ln})">${p}</span>", line ${ln}`;
+  });
+  // 2) Generic path:line (e.g. pulsemonitor/server.py:62 or apps/client/src/Drive.tsx:128)
+  safeHtml = safeHtml.replace(/(^|[\s(])([A-Za-z0-9_.\-/\\]+\.(?:py|ts|tsx|js|jsx|html|css|json|md)):(\d+)/g, (m, pre, p, ln)=>{
+    const clean = p.replace(/\\/g, '/');
+    return `${pre}<span class="tlink" onclick="jumpFromTerm('${escHtml(clean)}',${ln})">${p}:${ln}</span>`;
+  });
+  return safeHtml;
+}
+
+function renderAnsiLine(raw){
+  const re = /\x1b\[([0-9;]*)m/g;
+  let out = ''; let last = 0; let m;
+  let color = null; let bold = false; let dim = false;
+  while((m = re.exec(raw)) !== null){
+    if(m.index > last){
+      const chunk = linkifyPaths(escHtml(raw.slice(last, m.index)));
+      const st = (color?`color:${color};`:'') + (bold?'font-weight:700;':'') + (dim?'opacity:.65;':'');
+      out += st ? `<span style="${st}">${chunk}</span>` : chunk;
+    }
+    const codes = (m[1]||'0').split(';').map(x=>parseInt(x||'0',10));
+    for(const c of codes){
+      if(c===0){ color=null; bold=false; dim=false; }
+      else if(c===1) bold=true;
+      else if(c===2) dim=true;
+      else if(ANSI_COLORS[c]) color = ANSI_COLORS[c];
+    }
+    last = re.lastIndex;
+  }
+  if(last < raw.length){
+    const chunk = linkifyPaths(escHtml(raw.slice(last)));
+    const st = (color?`color:${color};`:'') + (bold?'font-weight:700;':'') + (dim?'opacity:.65;':'');
+    out += st ? `<span style="${st}">${chunk}</span>` : chunk;
+  }
+  return out;
+}
+
+async function jumpFromTerm(filePath, lineNum){
+  let rel = filePath.replace(/\\/g, '/');
+  const projRoot = (document.getElementById('projSel')?.value || '').replace(/\\/g, '/').replace(/\/$/, '');
+  if(projRoot && rel.toLowerCase().startsWith(projRoot.toLowerCase() + '/')){
+    rel = rel.slice(projRoot.length + 1);
+  }
+  await openFile(rel);
+  gotoEditorLine(lineNum);
+}
+
+function gotoEditorLine(lineNum){
+  const lines = editor.value.split('\n');
+  const idx = Math.max(0, Math.min(lines.length - 1, lineNum - 1));
+  let pos = 0;
+  for(let i=0;i<idx;i++) pos += lines[i].length + 1;
+  editor.focus();
+  editor.setSelectionRange(pos, pos + (lines[idx]?.length || 0));
+  const lineH = 19.5;
+  editor.scrollTop = Math.max(0, idx * lineH - editor.clientHeight / 3);
+  gutter.scrollTop = editor.scrollTop;
+}
+
+function appendTermLines(lines, reset=false){
+  const el = document.getElementById('termOut');
+  const atBottom = reset || (el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+  if(reset) el.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  for(const ln of (lines||[])){
+    const div = document.createElement('div');
+    div.innerHTML = renderAnsiLine(ln) || '&nbsp;';
+    frag.appendChild(div);
+  }
+  el.appendChild(frag);
+  while(el.childNodes.length > 450) el.removeChild(el.firstChild);
+  if(atBottom) el.scrollTop = el.scrollHeight;
+}
+
+function setTermRunningState(running){
+  termRunning = !!running;
+  const tag = document.getElementById('termPromptTag');
+  const inp = document.getElementById('termInp');
+  const btn = document.getElementById('termRunBtn');
+  if(termRunning){
+    tag.textContent = 'stdin>'; tag.className = 'prompt-tag stdin';
+    inp.placeholder = 'Çalışan işleme girdi gönderin (y/n veya metin + Enter)...';
+    btn.textContent = 'Gönder';
+  }else{
+    tag.textContent = 'PS>'; tag.className = 'prompt-tag';
+    inp.placeholder = 'Komut yazın (↑↓ geçmiş · Tab tamamla · ? ile Türkçe AI komut)...';
+    btn.textContent = 'Çalıştır';
+  }
+}
+
+async function loadTermSessions(){
+  const r = await fetch('/api/terminal/sessions').then(x=>x.json());
+  const box = document.getElementById('termTabs');
+  box.innerHTML = '';
+  if(!activeTermId && r.sessions.length) activeTermId = r.sessions[0].id;
+  if(activeTermId && !r.sessions.some(s=>s.id===activeTermId) && r.sessions.length){
+    activeTermId = r.sessions[0].id;
+  }
+  for(const s of r.sessions){
+    const t = document.createElement('div');
+    t.className = 'ttab' + (s.id===activeTermId?' active':'');
+    t.innerHTML = `${s.running?'<span class="dot"></span>':''}<span>${escHtml(s.name)}</span><span style="opacity:.55;padding-left:3px" onclick="event.stopPropagation();closeTerminalTab('${s.id}')">×</span>`;
+    t.onclick = ()=>selectTerminalTab(s.id);
+    box.appendChild(t);
+  }
+}
+
+async function createTerminalTab(){
+  const r = await fetch('/api/terminal/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(x=>x.json());
+  activeTermId = r.id;
+  await loadTermSessions();
+  connectTermStream(activeTermId);
+}
+
+async function closeTerminalTab(sid){
+  await fetch('/api/terminal/sessions/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:sid})});
+  if(activeTermId===sid) activeTermId = null;
+  await loadTermSessions();
+  if(activeTermId) connectTermStream(activeTermId);
+}
+
+async function selectTerminalTab(sid){
+  activeTermId = sid;
+  await loadTermSessions();
+  connectTermStream(sid);
+}
+
+async function connectTermStream(sid){
+  if(termEventSrc){ termEventSrc.close(); termEventSrc = null; }
+  const snap = await fetch('/api/terminal/status?id='+encodeURIComponent(sid)).then(x=>x.json());
+  document.getElementById('termCwd').textContent = '· ' + snap.cwd;
+  termHistory = snap.history || [];
+  termHistIdx = termHistory.length;
+  setTermRunningState(snap.running);
+  appendTermLines(snap.lines || [], true);
+
+  termEventSrc = new EventSource(`/api/terminal/stream?id=${encodeURIComponent(sid)}&after=${snap.seq||0}`);
+  termEventSrc.onmessage = (e)=>{
+    try{
+      const ev = JSON.parse(e.data);
+      if(ev.type==='output'){
+        appendTermLines(ev.lines || [], false);
+        document.getElementById('termCwd').textContent = '· ' + ev.cwd;
+        if(ev.running !== termRunning){ setTermRunningState(ev.running); loadTermSessions(); }
+      }else if(ev.type==='state'){
+        document.getElementById('termCwd').textContent = '· ' + ev.cwd;
+        if(ev.running !== termRunning){ setTermRunningState(ev.running); loadTermSessions(); }
+      }
+    }catch(err){}
+  };
+}
+
+async function pollTerminal(){
+  await loadTermSessions();
+  if(activeTermId && !termEventSrc) connectTermStream(activeTermId);
+}
+
 async function runTerm(cmd){
   if(!cmd || !cmd.trim()) return;
-  await fetch('/api/terminal/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd})});
-  pollTerminal();
+  const clean = cmd.trim();
+  if(!termHistory.length || termHistory[termHistory.length-1] !== clean) termHistory.push(clean);
+  termHistIdx = termHistory.length;
+  document.getElementById('compBar').style.display = 'none';
+  await fetch('/api/terminal/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:activeTermId, command:clean})});
+  loadTermSessions();
 }
-async function stopTerm(){ await fetch('/api/terminal/stop',{method:'POST'}); pollTerminal(); }
-async function clearTerm(){ await fetch('/api/terminal/clear',{method:'POST'}); pollTerminal(); }
-async function pollTerminal(){
-  try{
-    const j = await fetch('/api/terminal/status').then(x=>x.json());
-    document.getElementById('termCwd').textContent = '· ' + j.cwd;
-    const el = document.getElementById('termOut');
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
-    el.textContent = (j.lines||[]).join('\n');
-    if(atBottom) el.scrollTop = el.scrollHeight;
-  }catch(e){}
+
+async function submitTermInput(){
+  const inp = document.getElementById('termInp');
+  const val = inp.value;
+  if(!val.trim()) return;
+  inp.value = '';
+  document.getElementById('compBar').style.display = 'none';
+  if(termRunning){
+    await fetch('/api/terminal/input',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:activeTermId, text:val})});
+    return;
+  }
+  if(val.trim().startsWith('?')){
+    const q = val.trim().slice(1).trim();
+    if(q) requestNlCmd(q);
+    return;
+  }
+  runTerm(val);
+}
+
+async function onTermKey(ev){
+  const inp = ev.target;
+  if(ev.key==='Enter'){ ev.preventDefault(); submitTermInput(); return; }
+  if(ev.key==='ArrowUp' && !termRunning){
+    ev.preventDefault();
+    if(termHistIdx > 0){ termHistIdx--; inp.value = termHistory[termHistIdx] || ''; }
+    return;
+  }
+  if(ev.key==='ArrowDown' && !termRunning){
+    ev.preventDefault();
+    if(termHistIdx < termHistory.length - 1){ termHistIdx++; inp.value = termHistory[termHistIdx] || ''; }
+    else { termHistIdx = termHistory.length; inp.value = ''; }
+    return;
+  }
+  if(ev.key==='Tab' && !termRunning){
+    ev.preventDefault();
+    const r = await fetch('/api/terminal/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:activeTermId, line:inp.value})}).then(x=>x.json());
+    inp.value = r.completed || inp.value;
+    const cb = document.getElementById('compBar');
+    if(r.matches && r.matches.length > 1){
+      cb.style.display = 'flex';
+      cb.innerHTML = r.matches.slice(0,12).map(m=>`<span style="cursor:pointer;padding:1px 5px;background:#162238;border-radius:4px" onclick="applyCompletion('${escHtml(m)}')">${escHtml(m)}</span>`).join('');
+    }else{
+      cb.style.display = 'none';
+    }
+  }
+}
+
+function applyCompletion(choice){
+  const inp = document.getElementById('termInp');
+  const parts = inp.value.split(' ');
+  parts[parts.length - 1] = choice;
+  inp.value = parts.join(' ');
+  document.getElementById('compBar').style.display = 'none';
+  inp.focus();
+}
+
+async function requestNlCmd(query){
+  const bar = document.getElementById('nlCmdBar');
+  bar.style.display = 'flex';
+  document.getElementById('nlCmdCode').textContent = 'AI çeviriyor...';
+  document.getElementById('nlCmdDesc').textContent = query;
+  pendingNlCmd = '';
+  const r = await fetch('/api/terminal/nl2cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:activeTermId, query})});
+  const j = await r.json();
+  if(r.ok && j.command){
+    pendingNlCmd = j.command;
+    document.getElementById('nlCmdCode').textContent = j.command;
+    document.getElementById('nlCmdDesc').textContent = j.explanation || '';
+  }else{
+    document.getElementById('nlCmdCode').textContent = 'Hata';
+    document.getElementById('nlCmdDesc').textContent = j.error || 'Çevrilemedi';
+  }
+}
+function acceptNlCmd(execNow){
+  const cmd = pendingNlCmd; hideNlBar();
+  if(!cmd) return;
+  if(execNow) runTerm(cmd);
+  else { const i = document.getElementById('termInp'); i.value = cmd; i.focus(); }
+}
+function hideNlBar(){ document.getElementById('nlCmdBar').style.display='none'; pendingNlCmd=''; }
+
+async function stopTerm(){ await fetch('/api/terminal/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:activeTermId})}); loadTermSessions(); }
+async function clearTerm(){
+  await fetch('/api/terminal/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:activeTermId})});
+  document.getElementById('termOut').innerHTML = '';
 }
 function sendTermErrorToAi(){
-  const txt = document.getElementById('termOut').textContent.slice(-1800);
+  const txt = document.getElementById('termOut').innerText.slice(-1800);
   switchRightTab('code');
-  document.getElementById('chatInp').value = "Terminaldeki su hatayi analiz et ve duzeltilmis kodu ver:\n\n```\n" + txt + "\n```";
+  document.getElementById('chatInp').value = "Terminaldeki şu hatayı analiz et ve düzeltilmiş kodu ver:\n\n```\n" + txt + "\n```";
   document.getElementById('chatInp').focus();
+}
+
+/* Draggable Resize + Collapse + Maximize */
+(function initTermResizer(){
+  const bar = document.getElementById('termResizer');
+  const area = document.getElementById('termArea');
+  let dragging = false, startY = 0, startH = 0;
+  bar.addEventListener('mousedown', e=>{
+    dragging = true; startY = e.clientY; startH = area.offsetHeight;
+    bar.classList.add('drag'); area.classList.remove('collapsed'); termMaximized = false;
+    document.body.style.userSelect = 'none';
+  });
+  window.addEventListener('mousemove', e=>{
+    if(!dragging) return;
+    const h = Math.max(90, Math.min(window.innerHeight * 0.78, startH + (startY - e.clientY)));
+    area.style.height = h + 'px'; termSavedHeight = h;
+  });
+  window.addEventListener('mouseup', ()=>{
+    if(!dragging) return;
+    dragging = false; bar.classList.remove('drag'); document.body.style.userSelect = '';
+  });
+})();
+function toggleTermCollapse(){
+  const area = document.getElementById('termArea');
+  area.classList.toggle('collapsed');
+}
+function toggleTermMax(){
+  const area = document.getElementById('termArea');
+  area.classList.remove('collapsed');
+  termMaximized = !termMaximized;
+  area.style.height = (termMaximized ? Math.round(window.innerHeight * 0.68) : termSavedHeight) + 'px';
 }
 
 /* Right tabs & GPU Arbiter */
@@ -794,14 +1110,20 @@ function closeMediaViewer(){
 
 loadProjects(); loadCodingModels(); loadTree(); pollStatus(); pollTerminal();
 setInterval(pollStatus, 2500);
-setInterval(pollTerminal, 1500);
+setInterval(loadTermSessions, 3500);
 </script>
 </body>
 </html>
 """
 
 
-def make_handler(arbiter: GPUArbiter, ws: Workspace, term: TerminalSession) -> type[BaseHTTPRequestHandler]:
+def make_handler(arbiter: GPUArbiter, ws: Workspace, term_mgr: TerminalManager | TerminalSession) -> type[BaseHTTPRequestHandler]:
+    if isinstance(term_mgr, TerminalSession):
+        mgr = TerminalManager(term_mgr.cwd)
+        mgr.sessions = {term_mgr.id: term_mgr}
+        mgr.active_id = term_mgr.id
+        term_mgr = mgr
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: Any) -> None:
             pass
@@ -859,8 +1181,26 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term: TerminalSession) -> t
             if path == "/api/workspace/search":
                 self._json({"hits": ws.search(qs.get("q", ""))})
                 return
+            if path == "/api/terminal/sessions":
+                self._json({"sessions": term_mgr.list_sessions()})
+                return
             if path == "/api/terminal/status":
-                self._json(term.snapshot())
+                self._json(term_mgr.get(qs.get("id")).snapshot())
+                return
+            if path == "/api/terminal/stream":
+                sess = term_mgr.get(qs.get("id"))
+                after = int(qs.get("after", "0") or "0")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                try:
+                    for ev in sess.subscribe(after_seq=after, heartbeat_s=4.0):
+                        chunk = f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode("utf-8")
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                    pass
                 return
             if path == "/api/media/outputs":
                 self._json(arbiter.list_media_outputs())
@@ -889,7 +1229,7 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term: TerminalSession) -> t
             if path == "/api/workspace/select":
                 try:
                     new_root = ws.set_root(str(body.get("path") or ""))
-                    term.set_cwd(new_root)
+                    term_mgr.set_cwd_all(new_root)
                     self._json({"ok": True, "root": str(new_root)})
                 except Exception as exc:
                     self._json({"error": str(exc)}, status=400)
@@ -898,7 +1238,7 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term: TerminalSession) -> t
             if path == "/api/workspace/create-project":
                 try:
                     new_root = ws.create_project(str(body.get("path") or ""))
-                    term.set_cwd(new_root)
+                    term_mgr.set_cwd_all(new_root)
                     self._json({"ok": True, "root": str(new_root)})
                 except PermissionError as exc:
                     self._json({"error": str(exc)}, status=403)
@@ -932,16 +1272,91 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term: TerminalSession) -> t
                     self._json({"error": str(exc)}, status=400)
                 return
 
+            if path == "/api/terminal/sessions":
+                s = term_mgr.create_session(name=body.get("name"), cwd=body.get("cwd"))
+                self._json({"ok": True, "id": s.id, "name": s.name, "cwd": str(s.cwd)})
+                return
+            if path == "/api/terminal/sessions/close":
+                ok = term_mgr.close_session(str(body.get("id") or ""))
+                self._json({"ok": ok})
+                return
             if path == "/api/terminal/run":
-                ok, msg = term.run_command(str(body.get("command") or ""))
+                sess = term_mgr.get(body.get("id"))
+                ok, msg = sess.run_command(str(body.get("command") or ""))
                 self._json({"ok": ok, "message": msg}, status=200 if ok else 400)
                 return
+            if path == "/api/terminal/input":
+                sess = term_mgr.get(body.get("id"))
+                ok, msg = sess.send_input(str(body.get("text") or ""))
+                self._json({"ok": ok, "message": msg}, status=200 if ok else 400)
+                return
+            if path == "/api/terminal/complete":
+                sess = term_mgr.get(body.get("id"))
+                self._json(sess.complete_path(str(body.get("line") or "")))
+                return
             if path == "/api/terminal/stop":
-                self._json({"ok": term.stop()})
+                sess = term_mgr.get(body.get("id"))
+                self._json({"ok": sess.stop()})
                 return
             if path == "/api/terminal/clear":
-                term.clear()
+                sess = term_mgr.get(body.get("id"))
+                sess.clear()
                 self._json({"ok": True})
+                return
+            if path == "/api/terminal/nl2cmd":
+                if arbiter.owner == "media":
+                    self._json({"error": "GPU su an Video/Gorsel uretiminde."}, status=409)
+                    return
+                if arbiter.owner != "coding":
+                    ok, msg = arbiter.start_coding(wait_ready=True)
+                    if not ok:
+                        self._json({"error": msg}, status=503)
+                        return
+                sess = term_mgr.get(body.get("id"))
+                query = str(body.get("query") or "").strip()
+                payload = {
+                    "model": arbiter.coding_model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                f"Convert the user's request into ONE safe Windows PowerShell command for cwd `{sess.cwd}`. "
+                                'Return ONLY valid JSON: {"command": "...", "explanation": "brief Turkish 1-line explanation"}.'
+                            ),
+                        },
+                        {"role": "user", "content": query},
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 180,
+                }
+                req = urllib.request.Request(
+                    f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=90) as resp:
+                        res = json.loads(resp.read().decode("utf-8", errors="replace"))
+                    txt = (res["choices"][0]["message"].get("content") or "").strip()
+                    import re as _re
+                    txt_clean = _re.sub(r"^```(?:json|powershell|ps1)?\s*|\s*```$", "", txt, flags=_re.I).strip()
+                    m = _re.search(r"\{[\s\S]*\}", txt_clean)
+                    parsed: dict[str, Any] = {}
+                    if m:
+                        raw_j = m.group(0)
+                        try:
+                            parsed = json.loads(raw_j)
+                        except json.JSONDecodeError:
+                            # Handle unescaped Windows backslashes inside JSON strings
+                            try:
+                                parsed = json.loads(_re.sub(r'(?<!\\)\\(?![\\/"bfnrtu])', r'\\\\', raw_j))
+                            except Exception:
+                                parsed = {}
+                    if not parsed.get("command"):
+                        parsed = {"command": txt_clean.strip("` \n"), "explanation": ""}
+                    self._json({"command": str(parsed.get("command") or "").strip(), "explanation": str(parsed.get("explanation") or "").strip()})
+                except Exception as exc:
+                    self._json({"error": str(exc)}, status=502)
                 return
 
             if path == "/api/gpu/start-coding":
@@ -1045,6 +1460,7 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term: TerminalSession) -> t
 class PicoStudioHTTPServer(ThreadingHTTPServer):
     """Disable SO_REUSEADDR on Windows so two IDE instances never silently share port 7900."""
     allow_reuse_address = False
+    daemon_threads = True
 
 
 def run_ide(
@@ -1061,15 +1477,15 @@ def run_ide(
 
     arbiter = GPUArbiter(cfg)
     ws = Workspace(ws_path, projects_root=cfg.get("projects_root"))
-    term = TerminalSession(ws.root)
+    term_mgr = TerminalManager(ws.root)
 
-    httpd = PicoStudioHTTPServer((h, p), make_handler(arbiter, ws, term))
+    httpd = PicoStudioHTTPServer((h, p), make_handler(arbiter, ws, term_mgr))
     url = f"http://{h}:{p}/"
     print("============================================================")
-    print(f"  PicoStudio Local IDE  -> {url}")
-    print(f"  Aktif Proje           -> {ws.root}")
-    print(f"  Kodlama Motoru        -> {arbiter.picocode_dir}")
-    print(f"  Video/Gorsel Motoru   -> {arbiter.picovid_dir}")
+    print(f"  PicoStudio Local IDE v0.3.0 -> {url}")
+    print(f"  Aktif Proje                 -> {ws.root}")
+    print(f"  Kodlama Motoru              -> {arbiter.picocode_dir}")
+    print(f"  Video/Gorsel Motoru         -> {arbiter.picovid_dir}")
     print("  Kapatmak icin Ctrl+C")
     print("============================================================", flush=True)
     if open_browser:
@@ -1079,7 +1495,7 @@ def run_ide(
     except KeyboardInterrupt:
         pass
     finally:
-        term.stop()
+        term_mgr.stop_all()
         arbiter.stop_all()
         httpd.server_close()
     return 0

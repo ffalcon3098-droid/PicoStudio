@@ -1,18 +1,24 @@
-# PicoStudio v0.1.0 — Birleşik Yerel IDE, Terminal & Çoklu AI Stüdyosu (Kod + Video + Görsel)
+# PicoStudio v0.3.0 — Birleşik Yerel IDE, Terminal Pro & Çoklu AI Stüdyosu (Kod + Video + Görsel)
 
 > [For English documentation, see README.md](README.md)
 
-**PicoStudio**, elinizdeki yerel **Kodlama Ajanını (`PicoCode` · Inkling 2 Mini)** ve **Video/Görsel Motorlarını (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli karanlık Web IDE** (`http://127.0.0.1:7900`), **gömülü Terminal** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
+**PicoStudio**, elinizdeki yerel **Kodlama Ajanlarını (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** ve **Video/Görsel Motorlarını (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli karanlık Web IDE** (`http://127.0.0.1:7900`), **Terminal Pro** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
 
 ---
 
 ## Öne Çıkan Özellikler
 
-- **6 GB VRAM GPU Nöbetçisi (`picostudio/arbiter.py`):** Kodlama ve Video modellerinin 6 GB VRAM'de çakışmasını engeller. Video/Görsel başlattığınızda `Inkling 2 Mini` otomatik kapanıp VRAM'i boşaltır; çıktı MP4/PNG doğrudan IDE içinde oynatılır.
+- **6 GB VRAM GPU Nöbetçisi (`picostudio/arbiter.py`):** Kodlama ve Video modellerinin 6 GB VRAM'de çakışmasını engeller. Video/Görsel başlattığınızda kodlama modeli otomatik kapanıp VRAM'i boşaltır; çıktı MP4/PNG doğrudan IDE içinde oynatılır.
+- **Terminal Pro (`v0.3.0`):**
+  - **Çok Sekmeli Canlı SSE Akışı:** Bir sekmede sunucu çalışırken diğer sekmede test veya `git` çalıştırın; her sekmenin bağımsız `cd` dizini ve sıfır gecikmeli `EventSource` canlı log akışı vardır.
+  - **İnteraktif `stdin`, Komut Geçmişi & `Tab` Tamamlama:** Komut çalışırken giriş satırı otomatik `stdin>` moduna geçer (`y/n`, `input()` cevapları için), `↑`/`↓` geçmişi ve `Tab` ile dosya/klasör yolu tamamlama sunar.
+  - **Tam ANSI Renk Desteği + Tıklanabilir `dosya:satır` Bağlantıları:** Renkli terminal çıktısında Python traceback ve `dosya.py:42` hata satırlarına tıklayınca editörde doğrudan o dosya ve satıra atlar.
+  - **Sürüklenebilir Bölme + Büyüt / Daralt:** Editör ve terminal arasındaki tutamacı sürükleyerek yüksekliği ayarlayın veya `⤢` / `▾` ile büyütüp daraltın.
+  - **Warp Tarzı `?` Doğal Dil → PowerShell AI Çevirici:** Komut satırına `?` ile başlayan Türkçe/İngilizce bir istek yazın (örn. `? 7890 portunu dinleyen sureci goster`), yerel AI komutu güvenli önizleme çubuğu (`Çalıştır` / `Düzenle` / `İptal`) ile hazırlasın.
 - **3 Panelli Karanlık Lokal IDE (`http://127.0.0.1:7900`):**
-  - **Sol Panel:** Proje değiştirici (`MiniLedger`, `PicoCode`, `localVid`, `PicoStudio` vb.), dosya ağacı, `+ Yeni Dosya`, proje içi arama.
-  - **Orta Panel:** Sekmeli kod editörü (satır numaraları, `Ctrl+S` kaydet, tek tık *Bug Bul / Refactor / Test Yaz*, gömülü MP4/PNG oynatıcı) + **Gömülü PowerShell Terminali** (`cd` desteği, `Test Koş`, `git status`, *"Hatayı AI'ya Gönder"*).
-  - **Sağ Panel:** İki birleşik sekme — **Kod Ajanı (`Inkling 2 Mini`)** (*Hızlı Kod* / *Derin Analiz* geçişi, ekran görüntüsü ekleme, tek tık **Editöre Uygula** ve **Terminalde Çalıştır**) + **Video & Görsel (`Wan 2.2` + `Z-Image-Turbo`)** (tek tık **Inkling 2 ile Sinematikleştir** çapraz model köprüsü + canlı galeri).
+  - **Sol Panel:** Proje değiştirici (`PulseMonitor`, `MiniLedger`, `PicoCode`, `localVid`, `PicoStudio` vb.), `+ Yeni Proje`, daraltılabilir dosya ağacı, `+ Yeni Dosya`, proje içi arama.
+  - **Orta Panel:** Sekmeli kod editörü (satır numaraları, `Ctrl+S` kaydet, tek tık *Bug Bul / Refactor / Test Yaz*, gömülü MP4/PNG oynatıcı) + **Terminal Pro**.
+  - **Sağ Panel:** İki birleşik sekme — **Kod Ajanı (`Qwen2.5-Coder-7B` & `Inkling 2 Mini`)** (canlı model değiştirme, gerçek tool-calling dosya okuma/yazma/düzenleme/terminal çalıştırma, Diff + tek tık **Geri Al**, **Dur**, ekran görüntüsü ekleme) + **Video & Görsel (`Wan 2.2` + `Z-Image-Turbo`)** (tek tık **Sinematikleştir** + canlı galeri).
 - **Birleşik Geliştirici CLI (`.\picostudio.cmd`):**
 
 ```powershell

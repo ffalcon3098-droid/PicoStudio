@@ -32,7 +32,7 @@ if str(STUDIO_ROOT) not in sys.path:
 from picostudio.agent import execute_tool
 from picostudio.arbiter import GPUArbiter, load_config
 from picostudio.cli import build_parser
-from picostudio.terminal import TerminalSession
+from picostudio.terminal import TerminalManager, TerminalSession
 from picostudio.web_ide import make_handler
 from picostudio.workspace import Workspace
 
@@ -76,25 +76,45 @@ class TestPicoStudioSuite(unittest.TestCase):
             read_txt, _ = execute_tool(ws, "read_file", {"path": "agent_out.py"})
             self.assertIn("x = 42", read_txt)
 
-    def test_02_terminal_command_and_cd(self) -> None:
+    def test_02_terminal_pro_multitab_stdin_and_autocomplete(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             sub = pathlib.Path(td) / "subproj"
             sub.mkdir()
-            term = TerminalSession(td)
-            ok, _ = term.run_command("cd subproj")
-            self.assertTrue(ok)
-            self.assertEqual(term.cwd, sub.resolve())
+            (sub / "alpha_script.py").write_text("print('hi')\n", encoding="utf-8")
 
-            ok, _ = term.run_command("Write-Output 'PICOSTUDIO_TERM_OK'")
+            mgr = TerminalManager(td)
+            t1 = mgr.get()
+            t2 = mgr.create_session("Tab 2")
+            self.assertEqual(len(mgr.list_sessions()), 2)
+
+            # Tab-completion + cd persistence
+            comp = t1.complete_path("cd sub")
+            self.assertEqual(comp["completed"], "cd subproj/")
+            ok, _ = t1.run_command("cd subproj")
             self.assertTrue(ok)
-            for _ in range(40):
-                snap = term.snapshot()
+            self.assertEqual(t1.cwd, sub.resolve())
+            self.assertEqual(t2.cwd, pathlib.Path(td).resolve())  # Independent CWD per tab!
+
+            comp2 = t1.complete_path("py alpha")
+            self.assertEqual(comp2["completed"], "py alpha_script.py")
+
+            # Interactive stdin test
+            ok, _ = t1.run_command('py -c "x = input(); print(\'ECHO:\' + x)"')
+            self.assertTrue(ok)
+            time.sleep(0.4)
+            ok_in, _ = t1.send_input("merhaba_stdin")
+            self.assertTrue(ok_in)
+            for _ in range(50):
+                snap = t1.snapshot()
                 if not snap["running"]:
                     break
                 time.sleep(0.1)
-            snap = term.snapshot()
+            snap = t1.snapshot()
             self.assertEqual(snap["last_exit"], 0)
-            self.assertTrue(any("PICOSTUDIO_TERM_OK" in ln for ln in snap["lines"]))
+            self.assertTrue(any("ECHO:merhaba_stdin" in ln for ln in snap["lines"]))
+            self.assertTrue(mgr.close_session(t2.id))
+            self.assertEqual(len(mgr.list_sessions()), 1)
+            mgr.stop_all()
 
     def test_03_arbiter_discovers_sibling_models(self) -> None:
         arb = GPUArbiter(load_config())
@@ -121,8 +141,9 @@ class TestPicoStudioSuite(unittest.TestCase):
             arb = GPUArbiter(load_config())
             ws = Workspace(td)
             ws.write_file("demo.py", "print('hello')\n")
-            term = TerminalSession(td)
+            term = TerminalManager(td)
             srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(arb, ws, term))
+            srv.daemon_threads = True
             port = srv.server_address[1]
             t = threading.Thread(target=srv.serve_forever, daemon=True)
             t.start()
@@ -169,7 +190,66 @@ class TestPicoStudioSuite(unittest.TestCase):
                     pj = json.loads(r.read().decode("utf-8"))
                     self.assertTrue(pj["ok"])
                     self.assertTrue(pathlib.Path(pj["root"]).exists())
+
+                # Terminal Pro HTTP endpoints: multi-tab, Tab-complete, run + SSE stream
+                with urllib.request.urlopen(f"{base}/api/terminal/sessions", timeout=5) as r:
+                    ss = json.loads(r.read().decode("utf-8"))["sessions"]
+                    self.assertGreaterEqual(len(ss), 1)
+                    s1_id = ss[0]["id"]
+
+                req_new = urllib.request.Request(
+                    f"{base}/api/terminal/sessions",
+                    data=json.dumps({"name": "Build Tab", "cwd": td}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_new, timeout=5) as r:
+                    s2 = json.loads(r.read().decode("utf-8"))
+                    self.assertTrue(s2["ok"])
+                    s2_id = s2["id"]
+
+                req_comp = urllib.request.Request(
+                    f"{base}/api/terminal/complete",
+                    data=json.dumps({"id": s2_id, "line": "py dem"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_comp, timeout=5) as r:
+                    comp = json.loads(r.read().decode("utf-8"))
+                    self.assertEqual(comp["completed"], "py demo.py")
+
+                req_run = urllib.request.Request(
+                    f"{base}/api/terminal/run",
+                    data=json.dumps({"id": s2_id, "command": "py demo.py"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_run, timeout=5) as r:
+                    self.assertTrue(json.loads(r.read().decode("utf-8"))["ok"])
+
+                # Read live SSE stream from /api/terminal/stream until we see 'hello'
+                got_hello = False
+                with urllib.request.urlopen(f"{base}/api/terminal/stream?id={s2_id}&after=0", timeout=8) as r:
+                    for _ in range(20):
+                        raw_ln = r.readline().decode("utf-8", errors="replace").strip()
+                        if raw_ln.startswith("data:"):
+                            ev = json.loads(raw_ln[5:].strip())
+                            if any("hello" in x for x in ev.get("lines", [])):
+                                got_hello = True
+                                break
+                self.assertTrue(got_hello)
+
+                req_close = urllib.request.Request(
+                    f"{base}/api/terminal/sessions/close",
+                    data=json.dumps({"id": s2_id}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_close, timeout=5) as r:
+                    self.assertTrue(json.loads(r.read().decode("utf-8"))["ok"])
+                self.assertNotEqual(s1_id, s2_id)
             finally:
+                term.stop_all()
                 srv.shutdown()
                 srv.server_close()
 
