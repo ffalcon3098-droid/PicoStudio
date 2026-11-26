@@ -1,0 +1,14 @@
+{
+  "schema_version": "0.1.0",
+  "picocode_dir": "../PicoCode",
+  "picovid_dir": "../localVid",
+  "projects_root": "..",
+  "default_workspace": "../MiniLedger",
+  "ide_host": "127.0.0.1",
+  "ide_port": 7900,
+  "llm_port": 8080,
+  "default_coding_model": "inkling2-mini",
+  "coding_use_draft": false,
+  "coding_use_vision": true,
+  "auto_resume_coding_after_media": false
+}
