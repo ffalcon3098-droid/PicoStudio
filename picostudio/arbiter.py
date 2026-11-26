@@ -216,7 +216,7 @@ class GPUArbiter:
             chosen_model = model_id or self.coding_model
             if self.owner == "coding" and self.coding_proc is not None and self.coding_proc.poll() is None and chosen_model == self.coding_model:
                 return True, f"{chosen_model} zaten hazir."
-            if self.owner == "coding_starting" and self.coding_proc is not None and self.coding_proc.poll() is None:
+            if self.owner == "coding_starting" and self.coding_proc is not None and self.coding_proc.poll() is None and chosen_model == self.coding_model:
                 existing_proc = self.coding_proc
             else:
                 existing_proc = None
@@ -232,6 +232,10 @@ class GPUArbiter:
             return False, f"PicoCode bulunamadi: {self.picocode_dir}"
 
         reg = self._picocode_serve.load_registry(self.picocode_dir / "configs" / "models_registry.json")
+        # Auto-fallback to first installed model if requested/default model is not downloaded yet
+        if chosen_model in reg["models"]:
+            if self._picocode_serve.resolve_model_file(reg["models"][chosen_model], reg, allow_missing=False) is None:
+                chosen_model = self._picocode_serve.pick_installed_model(reg)
         hw = self._probe_hw()
         self.hw_base = hw
         exe = self._picocode_serve.find_llama_server(hw.get("backend", "vulkan"))

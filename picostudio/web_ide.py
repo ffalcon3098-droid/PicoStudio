@@ -135,7 +135,7 @@ IDE_HTML = r"""<!doctype html>
 <header>
   <div class="brand">
     <span>PicoStudio IDE</span>
-    <span class="pill">v0.1.0</span>
+    <span class="pill">v0.2.0</span>
     <span id="gpuOwnerPill" class="pill">GPU: Boşta</span>
   </div>
   <div class="row">
@@ -144,7 +144,7 @@ IDE_HTML = r"""<!doctype html>
     <button class="sm" onclick="newProjectPrompt()" title="Yeni proje klasörü oluştur veya aç">+ Yeni Proje</button>
   </div>
   <div class="hdr-right">
-    <span id="gpuLbl">GPU...</span>
+    <select id="modelSel" onchange="switchCodingModel(this.value)" title="Aktif Kodlama Modeli"></select>
     <div class="meter"><div id="vramTxt">VRAM: --</div><div class="mbar"><div id="vramFill" class="mfill"></div></div></div>
     <div class="meter"><div id="ramTxt">RAM: --</div><div class="mbar"><div id="ramFill" class="mfill"></div></div></div>
     <button id="llmBtn" class="sm primary" onclick="toggleCodingEngine()">Kodlama AI Başlat</button>
@@ -239,7 +239,8 @@ IDE_HTML = r"""<!doctype html>
         </div>
         <div class="row" style="align-items:flex-end">
           <textarea id="chatInp" rows="2" style="flex:1;resize:vertical" placeholder="Kod görevinizi yazın (Ctrl+Enter)..." onkeydown="if(event.ctrlKey&&event.key==='Enter')sendAgent()"></textarea>
-          <button id="chatSendBtn" class="primary" style="height:48px;min-width:74px" onclick="sendAgent()">Gönder</button>
+          <button id="chatSendBtn" class="primary" style="height:48px;min-width:68px" onclick="sendAgent()">Gönder</button>
+          <button id="chatAbortBtn" class="danger" style="height:48px;display:none" onclick="abortAgent()">Dur</button>
         </div>
       </div>
     </div>
@@ -296,6 +297,8 @@ let chatHistory = [];
 let chatImgData = null;
 let lastStatus = null;
 let codeBlockStore = {};
+let agentAbortCtrl = null;
+const collapsedDirs = new Set();
 
 const editor = document.getElementById('codeEditor');
 const gutter = document.getElementById('gutter');
@@ -344,18 +347,62 @@ async function switchProject(path){
   loadTree(); pollTerminal();
 }
 
+async function loadCodingModels(){
+  const inv = await fetch('/api/inventory').then(x=>x.json());
+  const sel = document.getElementById('modelSel');
+  sel.innerHTML = '';
+  for(const m of (inv.coding_models||[])){
+    const o = document.createElement('option');
+    o.value = m.id;
+    const tag = m.id==='qwen25-coder-7b' ? '⚡ %100 GPU' : (m.id==='inkling2-mini' ? '🧠 Derin+Vision' : 'MoE');
+    o.textContent = `${m.id} (${tag})${m.installed?'':' [Eksik]'}`;
+    o.disabled = !m.installed;
+    if(lastStatus && lastStatus.coding_model===m.id) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+async function switchCodingModel(modelId){
+  if(!modelId) return;
+  const r = await fetch('/api/gpu/start-coding',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({model: modelId})
+  });
+  const j = await r.json();
+  if(!r.ok) alert(j.message||j.error||'Model baslatilamadi');
+  pollStatus();
+}
+
 async function loadTree(){
   const r = await fetch('/api/workspace/tree').then(x=>x.json());
   const box = document.getElementById('fileTree');
   box.innerHTML = '';
   for(const it of r.items){
+    // Hide items inside collapsed parent directories
+    let hidden = false;
+    for(const cd of collapsedDirs){
+      if(it.path.startsWith(cd + '/')){ hidden = true; break; }
+    }
+    if(hidden) continue;
     const div = document.createElement('div');
     div.className = 'titem ' + (it.kind==='dir'?'dir':'') + (it.path===activeTab?' active':'');
     div.style.paddingLeft = (10 + it.depth*14) + 'px';
-    div.textContent = (it.kind==='dir'?'▸ ':'  ') + it.name;
-    if(it.kind==='file') div.onclick = ()=>openFile(it.path);
+    if(it.kind==='dir'){
+      const isCol = collapsedDirs.has(it.path);
+      div.textContent = (isCol ? '▸ ' : '▾ ') + it.name;
+      div.onclick = ()=>{ isCol ? collapsedDirs.delete(it.path) : collapsedDirs.add(it.path); loadTree(); };
+    }else{
+      div.innerHTML = `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escHtml(it.name)}</span><span class="x" title="Sil" style="opacity:.45;font-size:11px;padding:0 4px" onclick="event.stopPropagation();deleteWorkspaceFile('${escHtml(it.path)}')">×</span>`;
+      div.onclick = ()=>openFile(it.path);
+    }
     box.appendChild(div);
   }
+}
+
+async function deleteWorkspaceFile(path){
+  if(!confirm(path + ' dosyasını silmek istiyor musunuz?')) return;
+  const r = await fetch('/api/workspace/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+  if(r.ok){ closeTab(path); loadTree(); }
 }
 
 async function openFile(path){
@@ -477,7 +524,8 @@ async function toggleCodingEngine(){
   if(lastStatus?.owner==='coding' || lastStatus?.owner==='coding_starting'){
     await fetch('/api/gpu/stop-coding',{method:'POST'});
   }else{
-    await fetch('/api/gpu/start-coding',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    const m = document.getElementById('modelSel')?.value || null;
+    await fetch('/api/gpu/start-coding',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:m})});
   }
   pollStatus();
 }
@@ -495,7 +543,10 @@ async function pollStatus(){
     else { p.className='pill'; p.textContent='GPU: Boşta'; btn.textContent='Kodlama AI Başlat'; }
 
     const hw = st.hardware||{};
-    document.getElementById('gpuLbl').textContent = hw.gpu_name || 'GPU';
+    const msel = document.getElementById('modelSel');
+    if(msel && st.coding_model && Array.from(msel.options).some(o=>o.value===st.coding_model && !o.disabled)){
+      msel.value = st.coding_model;
+    }
     if(hw.vram_used_ded_gib!=null && hw.vram_total_gib){
       const pct = Math.min(100, hw.vram_used_ded_gib/hw.vram_total_gib*100);
       const sh = hw.vram_used_shr_gib!=null?` · Sh:${hw.vram_used_shr_gib.toFixed(1)}`:'';
@@ -568,6 +619,26 @@ function applyCodeToEditor(id){
   updateGutter(); renderTabs(); saveActiveFile();
 }
 
+function abortAgent(){
+  if(agentAbortCtrl){ agentAbortCtrl.abort(); agentAbortCtrl = null; }
+}
+
+async function undoAgentEdit(undoId, btnEl){
+  const r = await fetch('/api/workspace/undo',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({undo_id: undoId})
+  });
+  const j = await r.json();
+  if(r.ok){
+    btnEl.textContent = 'Geri Alındı'; btnEl.disabled = true;
+    loadTree();
+    if(j.deleted){ closeTab(j.path); }
+    else if(openTabs[j.path]){ delete openTabs[j.path]; openFile(j.path); }
+  }else{
+    alert(j.error||'Geri alinamadi');
+  }
+}
+
 async function sendAgent(){
   const inp = document.getElementById('chatInp');
   const text = inp.value.trim();
@@ -587,13 +658,16 @@ async function sendAgent(){
   uDiv.innerHTML=`<div class="msg-hdr"><span>Sen</span><span>${activeTab?escHtml(activeTab):'Proje'}</span></div><div>${escHtml(text)}</div>`;
   feed.appendChild(uDiv);
 
+  const activeModelName = document.getElementById('modelSel')?.value || 'AI';
   const aDiv = document.createElement('div');
   aDiv.className='msg';
-  aDiv.innerHTML=`<div class="msg-hdr"><span>Inkling 2 Mini</span><span class="st">Proje taranıyor...</span></div><div class="tools" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div><div class="bd">...</div>`;
+  aDiv.innerHTML=`<div class="msg-hdr"><span>${escHtml(activeModelName)}</span><span class="st">Proje taranıyor...</span></div><div class="tools" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div><div class="bd">...</div>`;
   feed.appendChild(aDiv);
   feed.scrollTop = feed.scrollHeight;
 
   const btn = document.getElementById('chatSendBtn'); btn.disabled=true;
+  const abtn = document.getElementById('chatAbortBtn'); abtn.style.display='inline-block';
+  agentAbortCtrl = new AbortController();
   const mode = document.getElementById('agentMode').value;
   const activePayload = (document.getElementById('chkIncludeFile').checked && activeTab && openTabs[activeTab])
     ? {path: activeTab, content: openTabs[activeTab].content}
@@ -602,6 +676,7 @@ async function sendAgent(){
   try{
     const resp = await fetch('/api/agent/chat',{
       method:'POST',headers:{'Content-Type':'application/json'},
+      signal: agentAbortCtrl.signal,
       body:JSON.stringify({messages: chatHistory, mode, active_file: activePayload})
     });
     if(!resp.ok){
@@ -637,6 +712,10 @@ async function sendAgent(){
           }else if(ev.type==='file_changed'){
             loadTree();
             if(openTabs[ev.path]){ delete openTabs[ev.path]; openFile(ev.path); }
+            const dc = document.createElement('div');
+            dc.className = 'code-blk';
+            dc.innerHTML = `<div class="code-blk-h"><span>✏ ${escHtml(ev.path)} <b style="color:var(--ok)">+${ev.added||0}</b> <b style="color:var(--err)">-${ev.removed||0}</b></span><div class="row" style="gap:4px"><button class="sm" onclick="openFile('${escHtml(ev.path)}')">Aç</button>${ev.undo_id?`<button class="sm danger" onclick="undoAgentEdit('${escHtml(ev.undo_id)}',this)">Geri Al</button>`:''}</div></div>${ev.diff?`<pre style="max-height:110px;font-size:10.8px">${escHtml(ev.diff)}</pre>`:''}`;
+            toolsEl.appendChild(dc);
           }else if(ev.type==='delta' && ev.content){
             full += ev.content; toks++;
             const sec = (performance.now()-t0)/1000;
@@ -651,9 +730,9 @@ async function sendAgent(){
     }
     chatHistory.push({role:'assistant', content:full});
   }catch(e){
-    aDiv.querySelector('.bd').textContent = 'Bağlantı hatası: ' + e;
+    aDiv.querySelector('.bd').textContent = (e.name==='AbortError') ? 'Durduruldu.' : ('Bağlantı hatası: ' + e);
   }finally{
-    btn.disabled = false;
+    btn.disabled = false; abtn.style.display='none'; agentAbortCtrl = null;
   }
 }
 
@@ -713,7 +792,7 @@ function closeMediaViewer(){
   editor.style.display='block'; gutter.style.display='block';
 }
 
-loadProjects(); loadTree(); pollStatus(); pollTerminal();
+loadProjects(); loadCodingModels(); loadTree(); pollStatus(); pollTerminal();
 setInterval(pollStatus, 2500);
 setInterval(pollTerminal, 1500);
 </script>
@@ -833,6 +912,22 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term: TerminalSession) -> t
                     self._json({"ok": True, **res})
                 except PermissionError as exc:
                     self._json({"error": str(exc)}, status=403)
+                except Exception as exc:
+                    self._json({"error": str(exc)}, status=400)
+                return
+
+            if path == "/api/workspace/delete":
+                try:
+                    ok = ws.delete_file(str(body.get("path") or ""))
+                    self._json({"ok": ok}, status=200 if ok else 404)
+                except PermissionError as exc:
+                    self._json({"error": str(exc)}, status=403)
+                return
+
+            if path == "/api/workspace/undo":
+                try:
+                    res = ws.undo_edit(str(body.get("undo_id") or ""))
+                    self._json({"ok": True, **res})
                 except Exception as exc:
                     self._json({"error": str(exc)}, status=400)
                 return

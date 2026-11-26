@@ -9,7 +9,9 @@ Licensed under the Apache License, Version 2.0.
 
 from __future__ import annotations
 
+import difflib
 import pathlib
+import uuid
 from typing import Any
 
 IGNORE_DIRS = {
@@ -31,6 +33,7 @@ class Workspace:
         if not self.root.exists():
             self.root.mkdir(parents=True, exist_ok=True)
         self.projects_root = pathlib.Path(projects_root).resolve() if projects_root else self.root.parent
+        self._undo_store: dict[str, dict[str, Any]] = {}
 
     def set_root(self, new_root: str | pathlib.Path) -> pathlib.Path:
         cand = pathlib.Path(new_root)
@@ -132,6 +135,55 @@ class Workspace:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
         return {"path": p.relative_to(self.root).as_posix(), "size": p.stat().st_size}
+
+    def write_file_with_diff(self, rel_path: str, content: str) -> dict[str, Any]:
+        """Write file while recording an undo snapshot and unified diff stats."""
+        p = self.safe_path(rel_path)
+        existed = p.exists() and p.is_file()
+        old_text = p.read_text(encoding="utf-8", errors="replace") if existed else ""
+        res = self.write_file(rel_path, content)
+        undo_id = uuid.uuid4().hex[:10]
+        self._undo_store[undo_id] = {
+            "abs_path": str(p),
+            "rel_path": res["path"],
+            "existed": existed,
+            "old_content": old_text,
+        }
+        if len(self._undo_store) > 50:
+            oldest = next(iter(self._undo_store))
+            del self._undo_store[oldest]
+        diff_lines = list(
+            difflib.unified_diff(
+                old_text.splitlines(),
+                content.splitlines(),
+                fromfile=f"a/{res['path']}",
+                tofile=f"b/{res['path']}",
+                n=2,
+                lineterm="",
+            )
+        )
+        added = sum(1 for ln in diff_lines if ln.startswith("+") and not ln.startswith("+++"))
+        removed = sum(1 for ln in diff_lines if ln.startswith("-") and not ln.startswith("---"))
+        return {
+            **res,
+            "undo_id": undo_id,
+            "added": added,
+            "removed": removed,
+            "diff": "\n".join(diff_lines[:80]),
+        }
+
+    def undo_edit(self, undo_id: str) -> dict[str, Any]:
+        rec = self._undo_store.pop(undo_id, None)
+        if not rec:
+            raise KeyError("Geri alma kaydi bulunamadi veya zaten geri alindi.")
+        p = pathlib.Path(rec["abs_path"])
+        if rec["existed"]:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(rec["old_content"], encoding="utf-8")
+            return {"restored": True, "deleted": False, "path": rec["rel_path"]}
+        if p.exists():
+            p.unlink()
+        return {"restored": False, "deleted": True, "path": rec["rel_path"]}
 
     def delete_file(self, rel_path: str) -> bool:
         p = self.safe_path(rel_path)

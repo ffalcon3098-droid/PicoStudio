@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "picocode_dir": "../PicoCode",
   "picovid_dir": "../localVid",
   "projects_root": "..",
@@ -7,7 +7,7 @@
   "ide_host": "127.0.0.1",
   "ide_port": 7900,
   "llm_port": 8080,
-  "default_coding_model": "inkling2-mini",
+  "default_coding_model": "qwen25-coder-7b",
   "coding_use_draft": false,
   "coding_use_vision": true,
   "auto_resume_coding_after_media": false

@@ -61,8 +61,24 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "edit_file",
+            "description": "Replace exact target text block inside an existing file with replacement text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "target": {"type": "string"},
+                    "replacement": {"type": "string"},
+                },
+                "required": ["path", "target", "replacement"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "write_file",
-            "description": "Write full content to relative path.",
+            "description": "Create or overwrite a file with full content.",
             "parameters": {
                 "type": "object",
                 "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
@@ -81,8 +97,8 @@ AGENT_TOOLS: list[dict[str, Any]] = [
 ]
 
 
-def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, str | None]:
-    """Execute one workspace tool safely. Returns (result_text, modified_rel_path_or_None)."""
+def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    """Execute one workspace tool safely. Returns (result_text, change_info_or_None)."""
     try:
         if name == "list_files":
             subdir = str(args.get("subdir") or "").strip()
@@ -113,11 +129,22 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, s
                 return f"No matches for {q!r}.", None
             return "\n".join(f"{h['path']}:{h['line']}: {h['text']}" for h in hits), None
 
+        if name == "edit_file":
+            rel = str(args.get("path") or "")
+            target = str(args.get("target") or "")
+            replacement = str(args.get("replacement") or "")
+            data = ws.read_file(rel)
+            if not target or target not in data["content"]:
+                return f"ERROR: Target text not found in {rel}. Read the file first.", None
+            new_content = data["content"].replace(target, replacement, 1)
+            res = ws.write_file_with_diff(rel, new_content)
+            return f"OK: Edited {res['path']} (+{res['added']}/-{res['removed']}).", res
+
         if name == "write_file":
             rel = str(args.get("path") or "")
             content = str(args.get("content") or "")
-            res = ws.write_file(rel, content)
-            return f"OK: Wrote {res['path']} ({res['size']} bytes).", res["path"]
+            res = ws.write_file_with_diff(rel, content)
+            return f"OK: Wrote {res['path']} (+{res['added']}/-{res['removed']}, {res['size']} bytes).", res
 
         if name == "run_terminal":
             cmd = str(args.get("command") or "").strip()
@@ -177,17 +204,21 @@ def run_agent_stream(
         )
         conv_fast: list[dict[str, Any]] = [{"role": "system", "content": fast_sys}] + list(user_messages)
         yield {"type": "status", "text": "Proje bağlamıyla yanıt üretiliyor..."}
-        prefill = "### "
+        # Only Inkling 2 needs a prefill to skip its <|content_thinking|> block; Qwen streams directly!
+        use_prefill = "inkling" in (arbiter.coding_model or "").lower()
+        prefill = "### " if use_prefill else ""
+        msgs_send = conv_fast + ([{"role": "assistant", "content": prefill}] if use_prefill else [])
         payload = {
             "model": arbiter.coding_model,
-            "messages": conv_fast + [{"role": "assistant", "content": prefill}],
+            "messages": msgs_send,
             "temperature": 0.3,
             "max_tokens": 1400,
             "stream": True,
         }
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-        full = [prefill]
-        yield {"type": "delta", "content": prefill}
+        full = [prefill] if prefill else []
+        if prefill:
+            yield {"type": "delta", "content": prefill}
         with urllib.request.urlopen(req, timeout=360) as resp:
             for raw in resp:
                 ln = raw.decode("utf-8", errors="replace").strip()
@@ -286,9 +317,16 @@ def run_agent_stream(
             except Exception:
                 parsed_args = {}
             yield {"type": "tool", "name": fn_name, "args": parsed_args}
-            result_text, modified_path = execute_tool(ws, fn_name, parsed_args)
-            if modified_path:
-                yield {"type": "file_changed", "path": modified_path}
+            result_text, change_info = execute_tool(ws, fn_name, parsed_args)
+            if change_info:
+                yield {
+                    "type": "file_changed",
+                    "path": change_info["path"],
+                    "added": change_info["added"],
+                    "removed": change_info["removed"],
+                    "undo_id": change_info["undo_id"],
+                    "diff": change_info["diff"],
+                }
             first_ln = result_text.splitlines()[0][:120] if result_text else "OK"
             yield {"type": "tool_result", "name": fn_name, "summary": first_ln}
             conv.append({
