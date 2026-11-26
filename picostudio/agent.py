@@ -161,6 +161,8 @@ def run_agent_stream(
       {"type": "done", "full_text": "..."}
       {"type": "error", "error": "..."}
     """
+    url = f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions"
+
     # Fast mode: direct complete answer using snapshot (NO tools, NO "let me read files" promises!)
     if mode == "fast":
         snapshot = ws.project_context_snapshot(max_chars=2400)
