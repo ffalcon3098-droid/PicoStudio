@@ -140,28 +140,29 @@ class Workspace:
         p.unlink()
         return True
 
-    def project_context_snapshot(self, max_chars: int = 4500) -> str:
+    def project_context_snapshot(self, max_chars: int = 3600) -> str:
         """Build a compact, high-signal project overview (tree + key config/README files) for the AI agent."""
         lines: list[str] = [f"Project root: {self.root.name} ({self.root})"]
         lines.append("\nDirectory tree:")
-        tree = self.list_tree(max_depth=3, max_items=120)
+        tree = self.list_tree(max_depth=3, max_items=100)
         binary_dirs: dict[str, int] = {}
-        shown = 0
+        tree_chars = 0
         for item in tree:
             p = item["path"]
             if item["kind"] == "file" and pathlib.Path(p).suffix.lower() in (".glb", ".gltf", ".png", ".jpg", ".mp4", ".wav", ".mp3", ".sqlite", ".sqlite-wal", ".sqlite-shm", ".bin", ".gguf", ".safetensors"):
                 parent = pathlib.Path(p).parent.as_posix()
                 binary_dirs[parent] = binary_dirs.get(parent, 0) + 1
                 continue
-            if shown < 70:
-                lines.append(f"  {'  ' * item['depth']}{item['name']}{'/' if item['kind'] == 'dir' else ''}")
-                shown += 1
+            if tree_chars < 1100:
+                ln = f"  {'  ' * item['depth']}{item['name']}{'/' if item['kind'] == 'dir' else ''}"
+                lines.append(ln)
+                tree_chars += len(ln) + 1
         if binary_dirs:
             lines.append("Binary/asset folders:")
             for d, cnt in sorted(binary_dirs.items()):
-                lines.append(f"  {d}/ ({cnt} binary/asset files)")
+                lines.append(f"  {d}/ ({cnt} files)")
 
-        # Include high-signal project manifests / docs automatically
+        # Reserve ample budget for actual README / package.json / PRD contents
         key_candidates = [
             "README.md", "README.tr.md", "package.json", "pyproject.toml", "tsconfig.json",
             "requirements.txt", "apps/client/package.json", "apps/server/package.json", "docs/PRD.md",
@@ -172,19 +173,19 @@ class Workspace:
             if not fp.exists() or not fp.is_file():
                 continue
             budget = max_chars - used
-            if budget < 300:
+            if budget < 250:
                 break
             try:
                 txt = fp.read_text(encoding="utf-8", errors="replace").strip()
             except OSError:
                 continue
-            snippet = txt[: min(1400, budget - 80)]
+            snippet = txt[: min(1100, budget - 60)]
             block = f"\n--- {rel} ---\n{snippet}"
             lines.append(block)
             used += len(block)
 
         # If no standard manifest existed (e.g. small Python folder), peek first 2 small source files
-        if used < 900:
+        if used < 1200:
             for item in tree:
                 if item["kind"] != "file" or item["size"] > 12000:
                     continue
@@ -192,10 +193,10 @@ class Workspace:
                 if fp.suffix.lower() not in (".py", ".ts", ".tsx", ".js", ".html"):
                     continue
                 budget = max_chars - used
-                if budget < 300:
+                if budget < 250:
                     break
                 try:
-                    txt = fp.read_text(encoding="utf-8", errors="replace").strip()[: min(1200, budget - 80)]
+                    txt = fp.read_text(encoding="utf-8", errors="replace").strip()[: min(1100, budget - 60)]
                     block = f"\n--- {item['path']} ---\n{txt}"
                     lines.append(block)
                     used += len(block)

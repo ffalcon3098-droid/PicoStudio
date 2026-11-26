@@ -181,7 +181,7 @@ def run_agent_stream(
       {"type": "done", "full_text": "..."}
       {"type": "error", "error": "..."}
     """
-    snapshot = ws.project_context_snapshot(max_chars=2400)
+    snapshot = ws.project_context_snapshot(max_chars=3600)
     active_block = ""
     if active_file and active_file.get("path"):
         active_block = (
@@ -189,31 +189,32 @@ def run_agent_stream(
             f"```\n{(active_file.get('content') or '')[:3500]}\n```\n"
         )
 
-    sys_prompt = (
-        "You are PicoStudio, an expert local coding agent inside a Windows IDE.\n"
-        "You ALWAYS ground your answers in the real project files below — NEVER invent placeholder code "
-        "when the user asks to analyze or modify their project. Respond in the user's language (Turkish if they write Turkish).\n"
-        "If you need to inspect more files, search code, edit a file, or run tests, call the provided tools.\n"
-        "Keep answers concrete, clear, and concise.\n\n"
-        f"=== ACTIVE PROJECT SNAPSHOT ===\n{snapshot}\n{active_block}"
-    )
-
-    conv: list[dict[str, Any]] = [{"role": "system", "content": sys_prompt}] + list(user_messages)
     url = f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions"
 
-    # Fast mode: skip tool loop & prefill concise direct answer (still has full project snapshot!)
+    # Fast mode: direct complete answer using snapshot (NO tools, NO "let me read files" promises!)
     if mode == "fast":
+        fast_sys = (
+            "You are PicoStudio, an expert local coding assistant inside a Windows IDE.\n"
+            "You have NO file-reading tools in this fast mode — ALL available project files and docs are ALREADY pasted below.\n"
+            "NEVER say 'let me read the files first' or list filenames without analyzing them.\n"
+            "Give a direct, concrete, complete answer RIGHT NOW based on the real project contents below.\n"
+            "Match the user's language (English if they write English, Turkish if they write Turkish).\n\n"
+            f"=== ACTIVE PROJECT SNAPSHOT ===\n{snapshot}\n{active_block}"
+        )
+        conv_fast: list[dict[str, Any]] = [{"role": "system", "content": fast_sys}] + list(user_messages)
         yield {"type": "status", "text": "Proje bağlamıyla yanıt üretiliyor..."}
+        # Language-neutral markdown heading prefill avoids Inkling 2 Mini's lengthy <think> loop
+        prefill = "### "
         payload = {
             "model": arbiter.coding_model,
-            "messages": conv + [{"role": "assistant", "content": "Proje dosyalarına göre:\n"}],
+            "messages": conv_fast + [{"role": "assistant", "content": prefill}],
             "temperature": 0.3,
             "max_tokens": 1800,
             "stream": True,
         }
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-        full = ["Proje dosyalarına göre:\n"]
-        yield {"type": "delta", "content": full[0]}
+        full = [prefill]
+        yield {"type": "delta", "content": prefill}
         with urllib.request.urlopen(req, timeout=360) as resp:
             for raw in resp:
                 ln = raw.decode("utf-8", errors="replace").strip()
@@ -231,6 +232,15 @@ def run_agent_stream(
                         yield {"type": "delta", "content": tok}
         yield {"type": "done", "full_text": "".join(full)}
         return
+
+    sys_prompt = (
+        "You are PicoStudio, an expert local coding agent inside a Windows IDE.\n"
+        "You ALWAYS ground your answers in real project files — NEVER invent placeholder code.\n"
+        "Match the user's language (English if they write English, Turkish if they write Turkish).\n"
+        "When you need deeper code inspection, edits, or tests, immediately CALL the provided tools (`read_file`, `search_code`, `write_file`, `run_terminal`) instead of only talking about calling them.\n\n"
+        f"=== ACTIVE PROJECT SNAPSHOT ===\n{snapshot}\n{active_block}"
+    )
+    conv: list[dict[str, Any]] = [{"role": "system", "content": sys_prompt}] + list(user_messages)
 
     # Full tool-calling Agent loop (up to max_steps)
     final_chunks: list[str] = []
