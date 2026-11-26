@@ -42,21 +42,49 @@ class Workspace:
         self.root = cand
         return self.root
 
+    def create_project(self, name_or_path: str) -> pathlib.Path:
+        raw = (name_or_path or "").strip().strip('"').strip("'")
+        if not raw:
+            raise ValueError("Proje adi bos olamaz.")
+        cand = pathlib.Path(raw)
+        if not cand.is_absolute():
+            if ".." in cand.parts:
+                raise PermissionError("Gecersiz proje adi.")
+            cand = self.projects_root / cand
+        cand = cand.resolve()
+        cand.mkdir(parents=True, exist_ok=True)
+        self.root = cand
+        return self.root
+
     def list_projects(self) -> list[dict[str, str]]:
         out: list[dict[str, str]] = []
+        seen: set[str] = set()
         if self.projects_root.exists():
             for d in sorted(self.projects_root.iterdir(), key=lambda x: x.name.lower()):
                 if d.is_dir() and not d.name.startswith("."):
-                    out.append({"name": d.name, "path": str(d.resolve())})
+                    rp = str(d.resolve())
+                    out.append({"name": d.name, "path": rp})
+                    seen.add(rp)
+        cur = str(self.root.resolve())
+        if cur not in seen:
+            out.append({"name": self.root.name, "path": cur})
         return out
 
     def safe_path(self, rel_path: str) -> pathlib.Path:
-        rel_clean = (rel_path or "").replace("\\", "/").lstrip("/")
-        target = (self.root / rel_clean).resolve()
+        raw = (rel_path or "").strip()
+        cand = pathlib.Path(raw)
+        if cand.is_absolute():
+            target = cand.resolve()
+        else:
+            rel_clean = raw.replace("\\", "/").lstrip("/")
+            target = (self.root / rel_clean).resolve()
         try:
             target.relative_to(self.root)
         except ValueError as exc:
-            raise PermissionError(f"Calisma alani disina erisim engellendi: {rel_path}") from exc
+            raise PermissionError(
+                f"Calisma alani disina erisim engellendi: {rel_path} "
+                f"(Yeni proje klasoru olusturmak icin ustteki '+ Yeni Proje' butonunu kullanin)"
+            ) from exc
         return target
 
     def list_tree(self, max_depth: int = 4, max_items: int = 400) -> list[dict[str, Any]]:

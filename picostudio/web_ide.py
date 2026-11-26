@@ -140,6 +140,7 @@ IDE_HTML = r"""<!doctype html>
   <div class="row">
     <span style="font-size:12px;color:var(--mut)">Proje:</span>
     <select id="projSel" onchange="switchProject(this.value)"></select>
+    <button class="sm" onclick="newProjectPrompt()" title="Yeni proje klasörü oluştur veya aç">+ Yeni Proje</button>
   </div>
   <div class="hdr-right">
     <span id="gpuLbl">GPU...</span>
@@ -404,11 +405,28 @@ async function saveActiveFile(){
   if(r.ok){ openTabs[activeTab].saved = openTabs[activeTab].content; renderTabs(); }
 }
 
-async function newFilePrompt(){
-  const p = prompt('Yeni dosya yolu (ornek: utils/helper.py):');
+async function newProjectPrompt(){
+  const p = prompt('Yeni proje adı veya tam klasör yolu (örnek: araban veya C:\\Users\\ROBONENTA\\Desktop\\Projects\\araban):');
   if(!p || !p.trim()) return;
-  await fetch('/api/workspace/file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p.trim(), content:''})});
-  await loadTree(); openFile(p.trim());
+  const r = await fetch('/api/workspace/create-project',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({path:p.trim()})
+  });
+  const j = await r.json();
+  if(!r.ok){ alert(j.error||'Proje oluşturulamadı'); return; }
+  for(const k of Object.keys(openTabs)) delete openTabs[k];
+  activeTab = null; editor.value = ''; updateGutter(); renderTabs();
+  document.getElementById('activeFileLbl').textContent = 'Dosya seçilmedi';
+  await loadProjects(); await loadTree(); pollTerminal();
+}
+
+async function newFilePrompt(){
+  const p = prompt('Aktif proje içinde yeni dosya adı/yolu (örnek: main.py veya src/app.py):');
+  if(!p || !p.trim()) return;
+  const r = await fetch('/api/workspace/file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p.trim(), content:''})});
+  const j = await r.json();
+  if(!r.ok){ alert(j.error||'Dosya oluşturulamadı'); return; }
+  await loadTree(); openFile(j.path || p.trim());
 }
 
 async function searchProject(){
@@ -773,6 +791,17 @@ def make_handler(arbiter: GPUArbiter, ws: Workspace, term: TerminalSession) -> t
                     new_root = ws.set_root(str(body.get("path") or ""))
                     term.set_cwd(new_root)
                     self._json({"ok": True, "root": str(new_root)})
+                except Exception as exc:
+                    self._json({"error": str(exc)}, status=400)
+                return
+
+            if path == "/api/workspace/create-project":
+                try:
+                    new_root = ws.create_project(str(body.get("path") or ""))
+                    term.set_cwd(new_root)
+                    self._json({"ok": True, "root": str(new_root)})
+                except PermissionError as exc:
+                    self._json({"error": str(exc)}, status=403)
                 except Exception as exc:
                     self._json({"error": str(exc)}, status=400)
                 return

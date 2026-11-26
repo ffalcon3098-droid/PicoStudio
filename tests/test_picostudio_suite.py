@@ -141,6 +141,17 @@ class TestPicoStudioSuite(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as ctx:
                     urllib.request.urlopen(f"{base}/api/workspace/file?path=../../secret.txt", timeout=5)
                 self.assertEqual(ctx.exception.code, 403)
+
+                req_proj = urllib.request.Request(
+                    f"{base}/api/workspace/create-project",
+                    data=json.dumps({"path": str(pathlib.Path(td) / "yeni_proje")}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_proj, timeout=5) as r:
+                    pj = json.loads(r.read().decode("utf-8"))
+                    self.assertTrue(pj["ok"])
+                    self.assertTrue(pathlib.Path(pj["root"]).exists())
             finally:
                 srv.shutdown()
                 srv.server_close()
