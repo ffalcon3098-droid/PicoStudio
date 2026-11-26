@@ -152,6 +152,17 @@ class GPUArbiter:
 
     # ---------- Stop helpers (VRAM Release) ----------
 
+    def _kill_orphan_llama_servers(self) -> None:
+        """Ensure no stale llama-server.exe from a prior run stays resident in 6 GB VRAM / 32 GB RAM."""
+        if os.name == "nt":
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "llama-server.exe"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=flags,
+            )
+
     def stop_coding(self) -> None:
         with self.lock:
             proc = self.coding_proc
@@ -166,6 +177,7 @@ class GPUArbiter:
             except subprocess.TimeoutExpired:
                 proc.kill()
             self._log("[Arbiter] Kodlama modeli durduruldu — GPU VRAM serbest birakildi.")
+        self._kill_orphan_llama_servers()
 
     def stop_media(self) -> None:
         with self.lock:

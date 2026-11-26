@@ -181,12 +181,12 @@ def run_agent_stream(
       {"type": "done", "full_text": "..."}
       {"type": "error", "error": "..."}
     """
-    snapshot = ws.project_context_snapshot(max_chars=4500)
+    snapshot = ws.project_context_snapshot(max_chars=2400)
     active_block = ""
     if active_file and active_file.get("path"):
         active_block = (
             f"\nCurrently open file in IDE editor: `{active_file['path']}`\n"
-            f"```\n{(active_file.get('content') or '')[:5000]}\n```\n"
+            f"```\n{(active_file.get('content') or '')[:3500]}\n```\n"
         )
 
     sys_prompt = (
