@@ -55,6 +55,13 @@ class Workspace:
                 raise PermissionError("Gecersiz proje adi.")
             cand = self.projects_root / cand
         cand = cand.resolve()
+        # Security boundary: prevent creating/pivoting projects outside projects_root
+        try:
+            cand.relative_to(self.projects_root)
+        except ValueError as exc:
+            raise PermissionError(
+                f"Proje kok dizini disinda proje olusturulamaz: {cand} (izinli kok: {self.projects_root})"
+            ) from exc
         cand.mkdir(parents=True, exist_ok=True)
         self.root = cand
         return self.root

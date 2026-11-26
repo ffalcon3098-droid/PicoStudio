@@ -1,4 +1,4 @@
-# PicoStudio v0.6.0 — Unified Local IDE Pro, Symbols & F12, Alt+Space AI FIM, Ctrl+K, Terminal Pro & Git
+# PicoStudio v0.7.0 — Hardened & Modular Local IDE Pro, Native FIM, Terminal Pro, Git & Multi-Model AI Studio
 
 > [Türkçe dokümantasyon için README.tr.md](README.tr.md)
 
@@ -8,6 +8,12 @@
 
 ## Highlights
 
+- **Security Hardening, Native `/infill` FIM & Modular Architecture (`v0.7.0`):**
+  - **Localhost Security Shield:** Strict `Host` allowlist (DNS rebinding guard), Same-Origin + `application/json` enforcement, per-session random CSRF token (`X-PicoStudio-Token`), `create_project` boundary guard, and zero inline single-quote XSS (`escJsArg`).
+  - **Modular Frontend (`picostudio/static/`):** Decomposed the 2,881-line monolith into clean `index.html`, `style.css`, `app.js`, and a slim ~470-line `web_ide.py`.
+  - **Editor Undo (`Ctrl+Z`) & Reliability:** Native undo-preserving `replaceEditorRange()`, unsaved dirty-tab `beforeunload` warning, background tab polling brake (`document.hidden`), and debounced syntax highlighting for huge files.
+  - **Atomic GPU Arbiter + Native `/infill` FIM:** Serialized `_op_lock` eliminates GPU start/stop races, port-targeted `llama-server` cleanup never kills unrelated instances, and `Alt+Space` uses `llama-server`'s native `/infill` FIM endpoint!
+  - **Safer Coding Agent:** Rejects ambiguous multi-match `edit_file` targets, blocks destructive `run_terminal` commands, and supports real server-side stream cancellation (`POST /api/agent/abort`).
 - **Smart Navigation, `Alt+Space` AI Autocomplete & Project Replace (`v0.6.0`):**
   - **Symbol Outline (`Ctrl+Shift+O`) & `F12` Go-to-Definition (`picostudio/symbols.py`):** Python AST + JS/TS symbol indexer for current-file outline, workspace-wide `#symbol` search, and instant `F12` jump-to-definition.
   - **On-Demand `Alt+Space` AI Code Completion (FIM):** Prefix/suffix-aware local LLM completion bar with `Tab` to accept and `Esc` to dismiss.

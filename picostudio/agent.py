@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
+import threading
 import urllib.request
 from typing import Any, Iterator
 
@@ -176,6 +178,24 @@ def _extract_fallback_tool_calls(text: str, step: int, allowed: set[str] | None 
     return found
 
 
+_DANGEROUS_CMD_PATTERNS = [
+    re.compile(r"\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r", re.I),
+    re.compile(r"\bremove-item\b[^\n]*-recurse[^\n]*-force|\bremove-item\b[^\n]*-force[^\n]*-recurse", re.I),
+    re.compile(r"\b(del|erase|rmdir|rd)\b[^\n]*(/[sqf]\s*){2,}", re.I),
+    re.compile(r"\bgit\s+reset\s+--hard\b|\bgit\s+clean\s+-[a-z]*f|\bgit\s+push\s+[^\n]*--force\b", re.I),
+    re.compile(r"\b(invoke-expression|iex)\b|\|\s*(sh|bash|powershell|pwsh)\b", re.I),
+    re.compile(r"\b(format-volume|diskpart|shutdown|stop-computer|reg\s+delete)\b", re.I),
+]
+
+
+def is_dangerous_command(cmd: str) -> str | None:
+    """Return matched safety reason if an agent terminal command is destructive, else None."""
+    for pat in _DANGEROUS_CMD_PATTERNS:
+        if pat.search(cmd or ""):
+            return f"Guvenlik engeli: yikici komut ajan tarafindan otomatik calistirilamaz (`{pat.pattern[:48]}`). Kullanicidan terminalde manuel calistirmasini isteyin."
+    return None
+
+
 def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
     """Execute one workspace tool safely. Returns (result_text, change_info_or_None)."""
     try:
@@ -215,6 +235,12 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
             data = ws.read_file(rel)
             if not target or target not in data["content"]:
                 return f"ERROR: Target text not found in {rel}. Read the file first.", None
+            occurrences = data["content"].count(target)
+            if occurrences > 1:
+                return (
+                    f"ERROR: Ambiguous edit — target appears {occurrences} times in {rel}. "
+                    "Include 1-2 surrounding lines so the target is unique."
+                ), None
             new_content = data["content"].replace(target, replacement, 1)
             res = ws.write_file_with_diff(rel, new_content)
             return f"OK: Edited {res['path']} (+{res['added']}/-{res['removed']}).", res
@@ -229,6 +255,9 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
             cmd = str(args.get("command") or "").strip()
             if not cmd:
                 return "ERROR: Empty command.", None
+            danger = is_dangerous_command(cmd)
+            if danger:
+                return f"ERROR: {danger}", None
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             res = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", cmd],
@@ -303,6 +332,7 @@ def run_agent_stream(
     auto_verify: bool = False,
     test_cmd: str | None = None,
     max_heal_rounds: int = 2,
+    cancel_event: threading.Event | None = None,
 ) -> Iterator[dict[str, Any]]:
     """
     Generator yielding structured IDE events:
@@ -350,6 +380,10 @@ def run_agent_stream(
             yield {"type": "delta", "content": prefill}
         with urllib.request.urlopen(req, timeout=360) as resp:
             for raw in resp:
+                if cancel_event is not None and cancel_event.is_set():
+                    yield {"type": "status", "text": "İptal edildi."}
+                    yield {"type": "done", "full_text": "".join(full)}
+                    return
                 ln = raw.decode("utf-8", errors="replace").strip()
                 if not ln.startswith("data:"):
                     continue
@@ -399,6 +433,10 @@ def run_agent_stream(
     step = 0
 
     while step < effective_steps:
+        if cancel_event is not None and cancel_event.is_set():
+            yield {"type": "status", "text": "İptal edildi."}
+            yield {"type": "done", "full_text": "".join(final_chunks)}
+            return
         step += 1
         phase_lbl = "Plan hazırlanıyor" if is_plan_mode else "Ajan düşünüyor"
         yield {"type": "status", "text": f"{phase_lbl} (adım {step}/{effective_steps})..."}
@@ -418,6 +456,10 @@ def run_agent_stream(
 
         with urllib.request.urlopen(req, timeout=360) as resp:
             for raw in resp:
+                if cancel_event is not None and cancel_event.is_set():
+                    yield {"type": "status", "text": "İptal edildi."}
+                    yield {"type": "done", "full_text": "".join(final_chunks)}
+                    return
                 ln = raw.decode("utf-8", errors="replace").strip()
                 if not ln.startswith("data:"):
                     continue

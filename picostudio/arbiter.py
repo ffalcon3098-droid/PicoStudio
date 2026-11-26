@@ -53,9 +53,11 @@ class GPUArbiter:
         self._load_picocode_modules()
 
         self.lock = threading.Lock()
+        self._op_lock = threading.RLock()  # Serializes GPU start/stop transitions against TOCTOU races
         self.owner: str = "idle"  # idle | coding_starting | coding | media
         self.coding_model: str = self.cfg.get("default_coding_model", "inkling2-mini")
         self.coding_proc: subprocess.Popen[str] | None = None
+        self._last_coding_pid: int | None = None
         self.coding_plan: dict[str, Any] | None = None
         self.media_proc: subprocess.Popen[str] | None = None
         self.media_job: dict[str, Any] | None = None
@@ -152,48 +154,77 @@ class GPUArbiter:
 
     # ---------- Stop helpers (VRAM Release) ----------
 
-    def _kill_orphan_llama_servers(self) -> None:
-        """Ensure no stale llama-server.exe from a prior run stays resident in 6 GB VRAM / 32 GB RAM."""
-        if os.name == "nt":
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            subprocess.run(
-                ["taskkill", "/F", "/IM", "llama-server.exe"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=flags,
+    def _kill_port_llama_server(self) -> None:
+        """Kill ONLY our tracked llama-server PID or a llama-server listening on self.llm_port (never unrelated instances)."""
+        if os.name != "nt":
+            return
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        pids_to_kill: set[int] = set()
+        if self._last_coding_pid:
+            pids_to_kill.add(self._last_coding_pid)
+        try:
+            ns = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=5, creationflags=flags,
             )
+            needle = f":{self.llm_port}"
+            for ln in (ns.stdout or "").splitlines():
+                parts = ln.split()
+                if len(parts) >= 5 and parts[1].endswith(needle) and parts[3].upper() == "LISTENING":
+                    if parts[4].isdigit():
+                        pids_to_kill.add(int(parts[4]))
+        except Exception:
+            pass
+        for pid in pids_to_kill:
+            try:
+                chk = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    timeout=5, creationflags=flags,
+                )
+                if "llama-server.exe" in (chk.stdout or "").lower():
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(pid)],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags,
+                    )
+            except Exception:
+                pass
+        self._last_coding_pid = None
 
     def stop_coding(self) -> None:
-        with self.lock:
-            proc = self.coding_proc
-            self.coding_proc = None
-            self.coding_plan = None
-            if self.owner in ("coding", "coding_starting"):
-                self.owner = "idle"
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=6)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            self._log("[Arbiter] Kodlama modeli durduruldu — GPU VRAM serbest birakildi.")
-        self._kill_orphan_llama_servers()
+        with self._op_lock:
+            with self.lock:
+                proc = self.coding_proc
+                self.coding_proc = None
+                self.coding_plan = None
+                if self.owner in ("coding", "coding_starting"):
+                    self.owner = "idle"
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=6)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                self._log("[Arbiter] Kodlama modeli durduruldu — GPU VRAM serbest birakildi.")
+            self._kill_port_llama_server()
 
     def stop_media(self) -> None:
-        with self.lock:
-            proc = self.media_proc
-            self.media_proc = None
-            if self.media_job:
-                self.media_job["status"] = "stopped"
-            if self.owner == "media":
-                self.owner = "idle"
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=6)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            self._log("[Arbiter] Video/Gorsel uretimi durduruldu.", media=True)
+        with self._op_lock:
+            with self.lock:
+                proc = self.media_proc
+                self.media_proc = None
+                if self.media_job:
+                    self.media_job["status"] = "stopped"
+                if self.owner == "media":
+                    self.owner = "idle"
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=6)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                self._log("[Arbiter] Video/Gorsel uretimi durduruldu.", media=True)
 
     def stop_all(self) -> None:
         self.stop_media()
@@ -210,16 +241,86 @@ class GPUArbiter:
         ctx_size: int | None = None,
         wait_ready: bool = False,
     ) -> tuple[bool, str]:
-        with self.lock:
-            if self.owner == "media" and self.media_proc is not None and self.media_proc.poll() is None:
-                return False, "Su an Video/Gorsel uretimi GPU'yu kullaniyor. Once bitmesini bekleyin veya durdurun."
-            chosen_model = model_id or self.coding_model
-            if self.owner == "coding" and self.coding_proc is not None and self.coding_proc.poll() is None and chosen_model == self.coding_model:
-                return True, f"{chosen_model} zaten hazir."
-            if self.owner == "coding_starting" and self.coding_proc is not None and self.coding_proc.poll() is None and chosen_model == self.coding_model:
-                existing_proc = self.coding_proc
-            else:
-                existing_proc = None
+        existing_proc: subprocess.Popen[str] | None = None
+        proc: subprocess.Popen[str] | None = None
+
+        with self._op_lock:
+            with self.lock:
+                if self.owner == "media" and self.media_proc is not None and self.media_proc.poll() is None:
+                    return False, "Su an Video/Gorsel uretimi GPU'yu kullaniyor. Once bitmesini bekleyin veya durdurun."
+                chosen_model = model_id or self.coding_model
+                if self.owner == "coding" and self.coding_proc is not None and self.coding_proc.poll() is None and chosen_model == self.coding_model:
+                    return True, f"{chosen_model} zaten hazir."
+                if self.owner == "coding_starting" and self.coding_proc is not None and self.coding_proc.poll() is None and chosen_model == self.coding_model:
+                    existing_proc = self.coding_proc
+
+            if existing_proc is None:
+                self.stop_coding()
+                if self._picocode_serve is None:
+                    return False, f"PicoCode bulunamadi: {self.picocode_dir}"
+
+                reg = self._picocode_serve.load_registry(self.picocode_dir / "configs" / "models_registry.json")
+                if chosen_model in reg["models"]:
+                    if self._picocode_serve.resolve_model_file(reg["models"][chosen_model], reg, allow_missing=False) is None:
+                        chosen_model = self._picocode_serve.pick_installed_model(reg)
+                hw = self._probe_hw()
+                self.hw_base = hw
+                exe = self._picocode_serve.find_llama_server(hw.get("backend", "vulkan"))
+                if exe is None:
+                    return False, "llama-server.exe bulunamadi! PicoCode klasorunde setup.cmd calistirin."
+
+                draft_flag = self.cfg.get("coding_use_draft", False) if use_draft is None else use_draft
+                vision_flag = self.cfg.get("coding_use_vision", True) if use_vision is None else use_vision
+
+                try:
+                    cmd, plan = self._picocode_serve.build_server_command(
+                        chosen_model,
+                        hw,
+                        reg,
+                        server_exe=exe,
+                        host=self.llm_host,
+                        port=self.llm_port,
+                        ctx_size=ctx_size,
+                        use_draft=draft_flag,
+                        use_vision=vision_flag,
+                    )
+                except Exception as exc:
+                    return False, str(exc)
+
+                with self.lock:
+                    self.owner = "coding_starting"
+                    self.coding_model = chosen_model
+                    self.coding_plan = plan
+                    self.last_error = ""
+                    self.logs = [f"[Arbiter] Kodlama modeli yukleniyor: {plan['label']}"]
+
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=flags,
+                )
+                with self.lock:
+                    self.coding_proc = proc
+                    self._last_coding_pid = proc.pid
+
+                def _watch() -> None:
+                    assert proc is not None and proc.stdout is not None
+                    for line in proc.stdout:
+                        self._log(line.rstrip())
+                    code = proc.wait()
+                    with self.lock:
+                        if self.coding_proc is proc:
+                            self.coding_proc = None
+                            if self.owner in ("coding", "coding_starting"):
+                                self.owner = "idle"
+                                self.last_error = f"llama-server cikti (kod={code})"
+
+                threading.Thread(target=_watch, daemon=True).start()
 
         if existing_proc is not None:
             if wait_ready and self._picocode_serve is not None:
@@ -227,71 +328,7 @@ class GPUArbiter:
                 return ok, ("Hazir" if ok else "Sunucu hazir olamadi.")
             return True, f"{self.coding_model} zaten yukleniyor..."
 
-        self.stop_coding()
-        if self._picocode_serve is None:
-            return False, f"PicoCode bulunamadi: {self.picocode_dir}"
-
-        reg = self._picocode_serve.load_registry(self.picocode_dir / "configs" / "models_registry.json")
-        # Auto-fallback to first installed model if requested/default model is not downloaded yet
-        if chosen_model in reg["models"]:
-            if self._picocode_serve.resolve_model_file(reg["models"][chosen_model], reg, allow_missing=False) is None:
-                chosen_model = self._picocode_serve.pick_installed_model(reg)
-        hw = self._probe_hw()
-        self.hw_base = hw
-        exe = self._picocode_serve.find_llama_server(hw.get("backend", "vulkan"))
-        if exe is None:
-            return False, "llama-server.exe bulunamadi! PicoCode klasorunde setup.cmd calistirin."
-
-        draft_flag = self.cfg.get("coding_use_draft", False) if use_draft is None else use_draft
-        vision_flag = self.cfg.get("coding_use_vision", True) if use_vision is None else use_vision
-
-        try:
-            cmd, plan = self._picocode_serve.build_server_command(
-                chosen_model,
-                hw,
-                reg,
-                server_exe=exe,
-                host=self.llm_host,
-                port=self.llm_port,
-                ctx_size=ctx_size,
-                use_draft=draft_flag,
-                use_vision=vision_flag,
-            )
-        except Exception as exc:
-            return False, str(exc)
-
-        with self.lock:
-            self.owner = "coding_starting"
-            self.coding_model = chosen_model
-            self.coding_plan = plan
-            self.last_error = ""
-            self.logs = [f"[Arbiter] Kodlama modeli yukleniyor: {plan['label']}"]
-
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            creationflags=flags,
-        )
-        with self.lock:
-            self.coding_proc = proc
-
-        def _watch() -> None:
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                self._log(line.rstrip())
-            code = proc.wait()
-            with self.lock:
-                if self.coding_proc is proc:
-                    self.coding_proc = None
-                    if self.owner in ("coding", "coding_starting"):
-                        self.owner = "idle"
-                        self.last_error = f"llama-server cikti (kod={code})"
-
+        assert proc is not None
         def _wait_health() -> None:
             ok = self._picocode_serve.wait_for_health(self.llm_host, self.llm_port, proc, timeout_s=180.0)
             with self.lock:
@@ -303,13 +340,105 @@ class GPUArbiter:
                         self.owner = "idle"
                         self.last_error = "Kodlama sunucusu hazir olamadi."
 
-        threading.Thread(target=_watch, daemon=True).start()
         if wait_ready:
             _wait_health()
             with self.lock:
                 return (self.owner == "coding"), ("Hazir" if self.owner == "coding" else self.last_error)
         threading.Thread(target=_wait_health, daemon=True).start()
         return True, f"{chosen_model} baslatiliyor..."
+
+    # ---------- Unified LLM Helpers (Eliminates boilerplate across IDE endpoints) ----------
+
+    def ensure_coding_ready(self) -> tuple[bool, int, str]:
+        """Ensure coding LLM is ready; returns (ok, http_status, error_msg)."""
+        if self.owner == "media":
+            return False, 409, "GPU su an Video/Gorsel uretiminde."
+        if self.owner != "coding":
+            ok, msg = self.start_coding(wait_ready=True)
+            if not ok:
+                return False, 503, msg
+        return True, 200, ""
+
+    def chat_complete(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 256,
+        timeout: int = 90,
+    ) -> tuple[bool, int, str]:
+        """Single-shot local LLM chat completion returning (ok, status, content_or_error)."""
+        ok, code, err = self.ensure_coding_ready()
+        if not ok:
+            return False, code, err
+        payload = {
+            "model": self.coding_model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        req = urllib.request.Request(
+            f"http://{self.llm_host}:{self.llm_port}/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                res = json.loads(resp.read().decode("utf-8", errors="replace"))
+            txt = (res["choices"][0]["message"].get("content") or "").strip()
+            return True, 200, txt
+        except Exception as exc:
+            return False, 502, str(exc)
+
+    def infill_complete(
+        self,
+        prefix: str,
+        suffix: str,
+        *,
+        rel_path: str = "code.py",
+        max_tokens: int = 160,
+        timeout: int = 90,
+    ) -> tuple[bool, int, str]:
+        """Native llama-server `/infill` FIM completion (far higher accuracy on Qwen2.5-Coder), with chat fallback."""
+        ok, code, err = self.ensure_coding_ready()
+        if not ok:
+            return False, code, err
+        infill_payload = {
+            "input_prefix": prefix[-2200:],
+            "input_suffix": suffix[:800],
+            "n_predict": max_tokens,
+            "temperature": 0.12,
+            "stop": ["\n\n\n", "<|endoftext|>", "<|file_sep|>", "<|fim_pad|>"],
+        }
+        req = urllib.request.Request(
+            f"http://{self.llm_host}:{self.llm_port}/infill",
+            data=json.dumps(infill_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                res = json.loads(resp.read().decode("utf-8", errors="replace"))
+            comp = str(res.get("content") or "").rstrip("\r\n")
+            if comp.strip():
+                return True, 200, comp
+        except Exception:
+            pass
+        # Fallback to chat completion if model/server doesn't produce infill output
+        return self.chat_complete(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        f"You are an inline code autocomplete engine for `{rel_path}`. "
+                        "Continue code strictly at <CURSOR>. Output ONLY raw code (1-8 lines), NO fences, NO prose."
+                    ),
+                },
+                {"role": "user", "content": f"PREFIX:\n{prefix[-1800:]}<CURSOR>\nSUFFIX:\n{suffix[:600]}"},
+            ],
+            temperature=0.12,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
 
     # ---------- Start Video / Image via PicoVid (Auto-Unloads Coding LLM!) ----------
 
@@ -331,82 +460,83 @@ class GPUArbiter:
         if not gen_script.exists():
             return False, f"PicoVid bulunamadi: {gen_script}", None
 
-        with self.lock:
-            if self.owner == "media" and self.media_proc is not None and self.media_proc.poll() is None:
-                return False, "Zaten bir Video/Gorsel uretimi calisiyor.", None
-            was_coding = self.owner in ("coding", "coding_starting")
+        with self._op_lock:
+            with self.lock:
+                if self.owner == "media" and self.media_proc is not None and self.media_proc.poll() is None:
+                    return False, "Zaten bir Video/Gorsel uretimi calisiyor.", None
+                was_coding = self.owner in ("coding", "coding_starting")
 
-        # CRITICAL 6 GB VRAM HANDOFF: unload Inkling 2 Mini before launching Wan 2.2 / Z-Image!
-        if was_coding:
-            self._log("[Arbiter] 6 GB VRAM korumasi: Kodlama modeli kapatiliyor, GPU Video motoruna devrediliyor...", media=True)
-            self.stop_coding()
-            time.sleep(1.0)
+            # CRITICAL 6 GB VRAM HANDOFF: unload Coding LLM before launching Wan 2.2 / Z-Image!
+            if was_coding:
+                self._log("[Arbiter] 6 GB VRAM korumasi: Kodlama modeli kapatiliyor, GPU Video motoruna devrediliyor...", media=True)
+                self.stop_coding()
+                time.sleep(1.0)
 
-        out_dir = self.picovid_dir / "outputs"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        stamp = time.strftime("%Y%m%d_%H%M%S")
-        ext = "png" if mode == "t2i" else "mp4"
-        out_file = out_dir / f"studio_{engine}_{mode}_{stamp}.{ext}"
+            out_dir = self.picovid_dir / "outputs"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            ext = "png" if mode == "t2i" else "mp4"
+            out_file = out_dir / f"studio_{engine}_{mode}_{stamp}.{ext}"
 
-        cmd = [
-            sys.executable, "-u", str(gen_script),
-            "--engine", engine,
-            "--mode", mode,
-            "-p", prompt,
-            "-o", str(out_file),
-            "-W", str(int(width)),
-            "-H", str(int(height)),
-            "--raw-logs",
-            "--auto-approve",
-        ]
-        if mode != "t2i":
-            cmd += ["-f", str(int(frames))]
-            if cinema_hd:
-                cmd += ["--cinema-hd"]
-            if fast_preview:
-                cmd += ["--fast-preview"]
-        if init_img:
-            cmd += ["-i", init_img]
-        if seed is not None:
-            cmd += ["--seed", str(int(seed))]
-
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        env["SD_SEG_TIMING"] = "2"
-
-        with self.lock:
-            self.owner = "media"
-            self.last_error = ""
-            self.media_logs = [
-                f"[Arbiter] GPU devralindi -> PicoVid ({engine.upper()} / {mode.upper()})",
-                f"[Arbiter] Cikti: {out_file.name}",
+            cmd = [
+                sys.executable, "-u", str(gen_script),
+                "--engine", engine,
+                "--mode", mode,
+                "-p", prompt,
+                "-o", str(out_file),
+                "-W", str(int(width)),
+                "-H", str(int(height)),
+                "--raw-logs",
+                "--auto-approve",
             ]
-            self.media_job = {
-                "status": "running",
-                "engine": engine,
-                "mode": mode,
-                "prompt": prompt,
-                "output": str(out_file),
-                "output_name": out_file.name,
-                "started_at": time.time(),
-                "finished_at": None,
-                "returncode": None,
-            }
+            if mode != "t2i":
+                cmd += ["-f", str(int(frames))]
+                if cinema_hd:
+                    cmd += ["--cinema-hd"]
+                if fast_preview:
+                    cmd += ["--fast-preview"]
+            if init_img:
+                cmd += ["-i", init_img]
+            if seed is not None:
+                cmd += ["--seed", str(int(seed))]
 
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(self.picovid_dir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            creationflags=flags,
-        )
-        with self.lock:
-            self.media_proc = proc
+            env = os.environ.copy()
+            env["PYTHONUNBUFFERED"] = "1"
+            env["SD_SEG_TIMING"] = "2"
+
+            with self.lock:
+                self.owner = "media"
+                self.last_error = ""
+                self.media_logs = [
+                    f"[Arbiter] GPU devralindi -> PicoVid ({engine.upper()} / {mode.upper()})",
+                    f"[Arbiter] Cikti: {out_file.name}",
+                ]
+                self.media_job = {
+                    "status": "running",
+                    "engine": engine,
+                    "mode": mode,
+                    "prompt": prompt,
+                    "output": str(out_file),
+                    "output_name": out_file.name,
+                    "started_at": time.time(),
+                    "finished_at": None,
+                    "returncode": None,
+                }
+
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(self.picovid_dir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                creationflags=flags,
+            )
+            with self.lock:
+                self.media_proc = proc
 
         def _watch_media() -> None:
             assert proc.stdout is not None

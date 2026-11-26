@@ -44,7 +44,7 @@ def configure_utf8() -> None:
 def stream_chat_once(arbiter: GPUArbiter, messages: list[dict], mode: str = "fast") -> str:
     sys_msg = {"role": "system", "content": "You are PicoStudio, a concise senior software engineer running locally."}
     full_msgs = [sys_msg] + messages
-    if mode == "fast":
+    if mode == "fast" and "inkling" in (arbiter.coding_model or "").lower():
         full_msgs.append({"role": "assistant", "content": "Here is the answer:\n"})
 
     payload = {

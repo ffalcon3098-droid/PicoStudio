@@ -1,4 +1,4 @@
-# PicoStudio v0.6.0 — Birleşik Yerel IDE Pro, Sembol & F12, Alt+Space AI Tamamlama, Ctrl+K, Terminal Pro & Git
+# PicoStudio v0.7.0 — Zırhlı & Modüler Yerel IDE Pro, Natif FIM, Terminal Pro, Git & Çoklu AI Stüdyosu
 
 > [For English documentation, see README.md](README.md)
 
@@ -8,6 +8,12 @@
 
 ## Öne Çıkan Özellikler
 
+- **Güvenlik Zırhı, Natif `/infill` FIM & Modüler Mimari (`v0.7.0`):**
+  - **Localhost Güvenlik Kalkanı:** Katı `Host` kontrolü (DNS rebinding koruması), Same-Origin + `application/json` zorunluluğu, oturum bazlı rastgele CSRF token (`X-PicoStudio-Token`), `create_project` sınır koruması ve sıfır tek-tırnak `onclick` XSS (`escJsArg`).
+  - **Modüler Ön Yüz (`picostudio/static/`):** `2.881` satırlık monolit temiz `index.html`, `style.css`, `app.js` ve ~470 satırlık `web_ide.py` olarak ayrıştırıldı.
+  - **Editör `Ctrl+Z` & Güvenilirlik:** Tarayıcı geri alma yığınını koruyan `replaceEditorRange()`, kaydedilmemiş sekme çıkışı uyarısı (`beforeunload`), arka plan sekme polling freni (`document.hidden`) ve büyük dosyalarda debounce renklendirme.
+  - **Atomik GPU Nöbetçisi + Natif `/infill` FIM:** `_op_lock` ile sıfır VRAM yarış durumu, sadece kendi port/PID'ini kapatan güvenli `llama-server` temizliği ve `Alt+Space` için natif `llama-server /infill` FIM tamamlama.
+  - **Daha Güvenli Kod Ajanı:** Belirsiz çoklu eşleşmeli `edit_file` reddi, yıkıcı `run_terminal` komut engeli ve gerçek sunucu tarafı iptal (`POST /api/agent/abort`).
 - **Akıllı Gezinme, `Alt+Space` AI Tamamlama & Proje Değiştirme (`v0.6.0`):**
   - **Sembol Gezgini (`Ctrl+Shift+O`) & `F12` Tanıma Git (`picostudio/symbols.py`):** Python AST + JS/TS sembol çıkarıcı ile dosya içi Outline, `#` ile proje geneli sembol arama ve imleçteki fonksiyona `F12` ile anında atlama.
   - **İsteğe Bağlı `Alt+Space` AI Kod Tamamlama (FIM):** İmleç öncesi/sonrası bağlamla yerel modelden tamamlama önerisi (`Tab` ile kabul, `Esc` ile iptal).
