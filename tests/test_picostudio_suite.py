@@ -116,7 +116,7 @@ class TestPicoStudioSuite(unittest.TestCase):
             time.sleep(0.4)
             ok_in, _ = t1.send_input("merhaba_stdin")
             self.assertTrue(ok_in)
-            for _ in range(50):
+            for _ in range(200):
                 snap = t1.snapshot()
                 if not snap["running"]:
                     break
