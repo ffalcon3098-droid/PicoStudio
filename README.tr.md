@@ -1,8 +1,45 @@
-# PicoStudio v0.12.0 — Yerel IDE Pro, Kod Ajanı v3, Yan Yana Diff İnceleme & LTX-2.3 Ses+Video Stüdyosu
+# PicoStudio v0.12.0 — Yerel IDE Pro, Kod Ajanı v3, Yan Yana Diff İnceleme & LTX-2.3 Ses+Video Stüdyosu (AMD & NVIDIA)
 
-> [For English documentation, see README.md](README.md)
+[![Regression Tests](https://github.com/ffalcon3098-droid/PicoStudio/actions/workflows/tests.yml/badge.svg)](https://github.com/ffalcon3098-droid/PicoStudio/actions/workflows/tests.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-**PicoStudio**, elinizdeki yerel **Kod Ajanı v3'ü (`PicoCode v0.7.0` · Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** ve **Video/Görsel Motorlarını (`PicoVid v0.7.0` · LTX-2.3 22B Distilled 1.1 Ses+Video + Z-Image-Turbo)** tek bir sıfır bağımlılıklı **İngilizce varsayılan 3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Yan Yana (Side-by-Side) Diff & Çok Dosyalı İnceleme**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
+> [For English documentation, see README.md](README.md) · **Platform:** Windows 10/11 (x64) · **Sıfır harici Python bağımlılığı** (saf stdlib) · **GPU Desteği:** AMD Radeon (Vulkan) & NVIDIA GeForce GTX/RTX (CUDA 12.4 / Vulkan)
+
+**PicoStudio**, elinizdeki yerel **Kod Ajanı v3'ü ([PicoCode](https://github.com/ffalcon3098-droid/PicoCode) · Qwen3-Coder-30B-A3B MoE, Inkling 2 Mini Vision, Qwen2.5-Coder-7B)** ve **Video/Görsel Motorlarını ([localVid / PicoVid](https://github.com/ffalcon3098-droid/localVid) · LTX-2.3 22B Distilled 1.1 Ses+Video, Wan 2.2 TI2V-5B, Z-Image-Turbo)** tek bir sıfır bağımlılıklı **İngilizce varsayılan 3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Yan Yana (Side-by-Side) Diff & Çok Dosyalı İnceleme**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ve otomatik **4–6 GB VRAM GPU Nöbetçisi** ile çalıştırır.
+
+---
+
+## Donanım & AMD/NVIDIA Uyumluluğu
+
+| GPU / Sistem Katmanı | Desteklenen Backend | Önerilen Kod + Video İkilisi |
+|---|---|---|
+| **AMD Radeon RX** (RX 5500 XT / **RX 5600 XT 6 GB doğrulandı** / RX 6600+) | **Vulkan** (`ggml-vulkan`) | Windows'ta ROCm gerekmeden otomatik çalışır. |
+| **NVIDIA GeForce GTX / RTX** (GTX 1650 / RTX 2060 / 3050 / 3060 / 4060+) | **CUDA 12.4** veya **Vulkan** | `PicoCode` ve `localVid` kurulumları tarafından otomatik algılanır; otomatik VRAM devri OOM'u önler. |
+| **4–6 GB VRAM + 16 GB RAM** *(Giriş)* | Vulkan / CUDA | `Qwen2.5-Coder-7B` + `Wan 2.2 TI2V-5B Turbo` / `Z-Image-Turbo` |
+| **6 GB+ VRAM + 32 GB RAM** *(Doğrulanmış İdeal)* | Vulkan / CUDA | `Qwen3-Coder-30B-A3B` / `Inkling 2 Mini Vision` + `LTX-2.3 22B Ses+Video` |
+
+---
+
+## Hızlı Başlangıç (Windows 10/11)
+
+PicoStudio'nun kendisi **yalnızca Python 3.10+ gerektirir (sıfır `pip` paketi)**. Modelleri sıfır kopyayla paylaşmak için 3 repoyu aynı üst klasörde yan yana klonlayın:
+
+```powershell
+# 1. Aynı proje klasöründe yan yana klonlayın
+git clone https://github.com/ffalcon3098-droid/PicoCode.git
+git clone https://github.com/ffalcon3098-droid/localVid.git
+git clone https://github.com/ffalcon3098-droid/PicoStudio.git
+
+# 2. PicoCode (ve video/görsel için opsiyonel localVid) içinde tek tıkla kurulumu çalıştırın
+cd PicoCode; .\setup.cmd; cd ..
+cd localVid; .\setup.cmd; cd ..
+
+# 3. PicoStudio Yerel Web IDE'yi başlatın (http://127.0.0.1:7900)
+cd PicoStudio
+.\ide.cmd
+# Veya doğrudan belirli bir proje klasörünü açın:
+.\picostudio.cmd ide --dir ..\my-project
+```
 
 ---
 
@@ -62,7 +99,7 @@
   - **Sürüklenebilir Bölme + Büyüt / Daralt:** Editör ve terminal arasındaki tutamacı sürükleyerek yüksekliği ayarlayın veya `⤢` / `▾` ile büyütüp daraltın.
   - **Warp Tarzı `?` Doğal Dil → PowerShell AI Çevirici:** Komut satırına `?` ile başlayan Türkçe/İngilizce bir istek yazın (örn. `? 7890 portunu dinleyen sureci goster`), yerel AI komutu güvenli önizleme çubuğu (`Çalıştır` / `Düzenle` / `İptal`) ile hazırlasın.
 - **3 Panelli Karanlık Lokal IDE (`http://127.0.0.1:7900`):**
-  - **Sol Panel:** Proje değiştirici (`PulseMonitor`, `MiniLedger`, `PicoCode`, `localVid`, `PicoStudio` vb.), `+ Yeni Proje`, daraltılabilir dosya ağacı, `+ Yeni Dosya`, proje içi arama.
+  - **Sol Panel:** Proje değiştirici (`PicoCode`, `localVid`, `PicoStudio`, kendi projeleriniz), `+ New Project`, daraltılabilir dosya ağacı, `+ New`, proje içi arama.
   - **Orta Panel:** Sekmeli kod editörü (satır numaraları, `Ctrl+S` kaydet, tek tık *Bug Bul / Refactor / Test Yaz*, gömülü MP4/PNG oynatıcı) + **Terminal Pro**.
   - **Sağ Panel:** İki birleşik sekme — **Kod Ajanı (`Qwen2.5-Coder-7B` & `Inkling 2 Mini`)** (canlı model değiştirme, gerçek tool-calling dosya okuma/yazma/düzenleme/terminal çalıştırma, Diff + tek tık **Geri Al**, **Dur**, ekran görüntüsü ekleme) + **Video & Görsel (`Wan 2.2` + `Z-Image-Turbo`)** (tek tık **Sinematikleştir** + canlı galeri).
 - **Birleşik Geliştirici CLI (`.\picostudio.cmd`):**
@@ -78,7 +115,7 @@
 .\picostudio.cmd chat
 
 # Tek seferlik kod sorusu (dosya bağlamlı)
-.\picostudio.cmd ask "Bu dosyadaki bugları bul" --file ..\MiniLedger\app.py
+.\picostudio.cmd ask "Find potential bugs in this file" --file ..\my-app\app.py
 
 # Terminalden doğrudan video / görsel üret (VRAM'i otomatik yönetir)
 .\picostudio.cmd video "Golden hour drone shot over Istanbul Bosphorus" --engine 5b --cinema-hd

@@ -3,7 +3,7 @@
   "picocode_dir": "../PicoCode",
   "picovid_dir": "../localVid",
   "projects_root": "..",
-  "default_workspace": "../MiniLedger",
+  "default_workspace": ".",
   "ide_host": "127.0.0.1",
   "ide_port": 7900,
   "llm_port": 8080,

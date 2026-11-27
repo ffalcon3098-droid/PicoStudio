@@ -1237,7 +1237,7 @@ function linkifyPaths(safeHtml){
     const clean = p.replace(/\\/g, '/');
     return `File "<span class="tlink" onclick="jumpFromTerm(${escJsArg(clean)},${ln})">${p}</span>", line ${ln}`;
   });
-  // 2) Generic path:line (e.g. pulsemonitor/server.py:62 or apps/client/src/Drive.tsx:128)
+  // 2) Generic path:line (e.g. src/server.py:62 or apps/client/src/App.tsx:128)
   safeHtml = safeHtml.replace(/(^|[\s(])([A-Za-z0-9_.\-/\\]+\.(?:py|ts|tsx|js|jsx|html|css|json|md)):(\d+)/g, (m, pre, p, ln)=>{
     const clean = p.replace(/\\/g, '/');
     return `${pre}<span class="tlink" onclick="jumpFromTerm(${escJsArg(clean)},${ln})">${p}:${ln}</span>`;
