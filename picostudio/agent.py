@@ -745,13 +745,18 @@ def run_agent_stream(
 
     # Keep messages[0] immutable across turns for 100% KV prefix caching; attach per-turn context to latest user msg
     active_hint = f"\n[Active editor file: `{active_file['path']}`]" if (active_file and active_file.get("path")) else ""
+    review_rule = (
+        " EVIDENCE RULE: Before claiming any bug, security flaw, hardcoded secret, or missing check, "
+        "verify the real implementation with `search_code` or `read_file` — NEVER judge from an import, "
+        "constant name, or struct declaration alone, and separate test code from production code."
+    )
     if is_plan_mode:
         sys_prompt = (
             f"You are PicoStudio Planning & Review Agent v3. Workspace: `{ws.root.name}`. "
             "You are in READ-ONLY MODE. Do NOT modify files. "
             "Call `project_overview` FIRST for fast project orientation, then inspect 2-5 key files with `read_file`, `search_code`, `repo_map`, or `find_symbols`. "
             "Then stop calling tools and write a concrete, file-and-line-cited review or numbered multi-file plan in the user's language."
-            f"{project_rules}"
+            f"{review_rule}{project_rules}"
         )
     else:
         sys_prompt = (
@@ -759,7 +764,7 @@ def run_agent_stream(
             "Call `project_overview` FIRST for project reviews/orientation, then `repo_map`, `find_symbols`, or `read_file` to inspect specific files. "
             "Use `edit_file` (preferred for targeted edits), `write_file`, `delete_file`, or `run_terminal` to implement and verify. "
             "If an edit reports `[SYNTAX ERROR]`, fix it immediately. Be concise and concrete; reply in the user's language."
-            f"{project_rules}"
+            f"{review_rule}{project_rules}"
         )
 
     msgs_copy = [dict(m) for m in user_messages]
