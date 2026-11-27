@@ -56,7 +56,7 @@ def get_status(ws: Workspace) -> dict[str, Any]:
             "total_changes": 0,
         }
 
-    rc, out, err = _run_git(ws.root, ["status", "--porcelain=v1", "-b", "-uall"])
+    rc, out, err = _run_git(ws.root, ["-c", "core.quotepath=false", "status", "--porcelain=v1", "-b", "-uall"])
     if rc != 0:
         return {
             "is_repo": False,
@@ -253,6 +253,8 @@ def unstage_path(ws: Workspace, rel_path: str | None = None) -> tuple[bool, str]
             rc, _, err = _run_git(ws.root, ["rm", "--cached", "--", rel])
     else:
         rc, _, err = _run_git(ws.root, ["reset", "HEAD"])
+        if rc != 0:
+            rc, _, err = _run_git(ws.root, ["rm", "-r", "--cached", "."])
     return (rc == 0), (err.strip() or "OK")
 
 

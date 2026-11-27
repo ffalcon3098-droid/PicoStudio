@@ -1,4 +1,4 @@
-# PicoStudio v0.10.0 — Yerel IDE Pro, Kod Ajanı v3, Yan Yana Diff İnceleme & LTX-2.3 Ses+Video Stüdyosu
+# PicoStudio v0.11.0 — Yerel IDE Pro, Kod Ajanı v3, Yan Yana Diff İnceleme & LTX-2.3 Ses+Video Stüdyosu
 
 > [For English documentation, see README.md](README.md)
 

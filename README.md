@@ -1,4 +1,4 @@
-# PicoStudio v0.10.0 — Local IDE Pro, Coding Agent v3, Side-by-Side Review & LTX-2.3 Audio+Video Studio
+# PicoStudio v0.11.0 — Local IDE Pro, Coding Agent v3, Side-by-Side Review & LTX-2.3 Audio+Video Studio
 
 > [Türkçe dokümantasyon için README.tr.md](README.tr.md)
 

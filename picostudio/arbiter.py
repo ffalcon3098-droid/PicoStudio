@@ -217,12 +217,16 @@ class GPUArbiter:
                 if self.owner == "media":
                     self.owner = "idle"
             if proc is not None and proc.poll() is None:
-                proc.terminate()
+                if os.name == "nt":
+                    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                    subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, creationflags=flags)
+                else:
+                    proc.terminate()
                 try:
                     proc.wait(timeout=6)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                self._log("[Arbiter] Video/Gorsel uretimi durduruldu.", media=True)
+                self._log("[Arbiter] Video/Gorsel uretimi durduruldu (alt surecler dahil).", media=True)
 
     def stop_all(self) -> None:
         self.stop_media()
@@ -323,6 +327,10 @@ class GPUArbiter:
         if existing_proc is not None:
             if wait_ready and self._picocode_serve is not None:
                 ok = self._picocode_serve.wait_for_health(self.llm_host, self.llm_port, existing_proc, timeout_s=180.0)
+                if ok:
+                    with self.lock:
+                        if self.coding_proc is existing_proc:
+                            self.owner = "coding"
                 return ok, ("Hazir" if ok else "Sunucu hazir olamadi.")
             return True, f"{self.coding_model} zaten yukleniyor..."
 
@@ -522,17 +530,25 @@ class GPUArbiter:
                 }
 
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(self.picovid_dir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-                creationflags=flags,
-            )
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(self.picovid_dir),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    env=env,
+                    creationflags=flags,
+                )
+            except OSError as exc:
+                with self.lock:
+                    self.owner = "idle"
+                    self.last_error = str(exc)
+                    if self.media_job is not None:
+                        self.media_job["status"] = "error"
+                return False, f"PicoVid baslatilamadi: {exc}", None
             with self.lock:
                 self.media_proc = proc
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import difflib
 import pathlib
+import threading
 import uuid
 from typing import Any
 
@@ -33,6 +34,8 @@ class Workspace:
         if not self.root.exists():
             self.root.mkdir(parents=True, exist_ok=True)
         self.projects_root = pathlib.Path(projects_root).resolve() if projects_root else self.root.parent
+        self._initial_root = self.root
+        self._lock = threading.RLock()
         self._undo_store: dict[str, dict[str, Any]] = {}
 
     def set_root(self, new_root: str | pathlib.Path) -> pathlib.Path:
@@ -40,10 +43,15 @@ class Workspace:
         if not cand.is_absolute():
             cand = self.projects_root / cand
         cand = cand.resolve()
+        if not cand.is_relative_to(self.projects_root) and cand != self._initial_root:
+            raise PermissionError(
+                f"Proje kok dizini disina gecis engellendi: {cand} (izinli kok: {self.projects_root})"
+            )
         if not cand.exists() or not cand.is_dir():
             raise FileNotFoundError(f"Klasor bulunamadi: {cand}")
-        self.root = cand
-        return self.root
+        with self._lock:
+            self.root = cand
+        return cand
 
     def create_project(self, name_or_path: str) -> pathlib.Path:
         raw = (name_or_path or "").strip().strip('"').strip("'")
@@ -134,35 +142,45 @@ class Workspace:
         sz = p.stat().st_size
         if sz > MAX_READ_BYTES:
             raise ValueError(f"Dosya editor icin cok buyuk ({sz // 1024} KB > 512 KB)")
-        content = p.read_text(encoding="utf-8", errors="replace")
+        raw = p.read_bytes()
+        if b"\x00" in raw[:8192]:
+            raise ValueError(f"Ikili (binary) dosya metin editorunde acilamaz: {rel_path}")
+        content = raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
         return {"path": p.relative_to(self.root).as_posix(), "content": content, "size": sz}
 
     def write_file(self, rel_path: str, content: str) -> dict[str, Any]:
         p = self.safe_path(rel_path)
+        orig_eol = "\r\n" if (p.is_file() and b"\r\n" in p.read_bytes()[:65536]) else "\n"
+        norm = content.replace("\r\n", "\n")
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
+        with p.open("w", encoding="utf-8", newline=orig_eol) as fh:
+            fh.write(norm)
         return {"path": p.relative_to(self.root).as_posix(), "size": p.stat().st_size}
 
     def write_file_with_diff(self, rel_path: str, content: str) -> dict[str, Any]:
-        """Write file while recording an undo snapshot and unified diff stats."""
+        """Write file while recording a byte-exact undo snapshot and unified diff stats."""
         p = self.safe_path(rel_path)
         existed = p.exists() and p.is_file()
-        old_text = p.read_text(encoding="utf-8", errors="replace") if existed else ""
+        old_bytes = p.read_bytes() if existed else b""
+        if existed and b"\x00" in old_bytes[:8192]:
+            raise ValueError(f"Ikili (binary) dosya metin olarak duzenlenemez: {rel_path}")
+        old_text = old_bytes.decode("utf-8", errors="replace").replace("\r\n", "\n") if existed else ""
         res = self.write_file(rel_path, content)
         undo_id = uuid.uuid4().hex[:10]
-        self._undo_store[undo_id] = {
-            "abs_path": str(p),
-            "rel_path": res["path"],
-            "existed": existed,
-            "old_content": old_text,
-        }
-        if len(self._undo_store) > 120:
-            oldest = next(iter(self._undo_store))
-            del self._undo_store[oldest]
+        with self._lock:
+            self._undo_store[undo_id] = {
+                "abs_path": str(p),
+                "rel_path": res["path"],
+                "existed": existed,
+                "old_bytes": old_bytes,
+            }
+            if len(self._undo_store) > 120:
+                oldest = next(iter(self._undo_store))
+                del self._undo_store[oldest]
         diff_lines = list(
             difflib.unified_diff(
                 old_text.splitlines(),
-                content.splitlines(),
+                content.replace("\r\n", "\n").splitlines(),
                 fromfile=f"a/{res['path']}",
                 tofile=f"b/{res['path']}",
                 n=2,
@@ -180,13 +198,17 @@ class Workspace:
         }
 
     def undo_edit(self, undo_id: str) -> dict[str, Any]:
-        rec = self._undo_store.pop(undo_id, None)
+        with self._lock:
+            rec = self._undo_store.pop(undo_id, None)
         if not rec:
             raise KeyError("Geri alma kaydi bulunamadi veya zaten geri alindi.")
         p = pathlib.Path(rec["abs_path"])
         if rec["existed"]:
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(rec["old_content"], encoding="utf-8")
+            if "old_bytes" in rec:
+                p.write_bytes(rec["old_bytes"])
+            else:
+                p.write_text(rec.get("old_content", ""), encoding="utf-8")
             return {"restored": True, "deleted": False, "path": rec["rel_path"]}
         if p.exists():
             p.unlink()
@@ -198,7 +220,9 @@ class Workspace:
         deleted: list[str] = []
         count = 0
         for uid in reversed(list(undo_ids or [])):
-            if uid not in self._undo_store:
+            with self._lock:
+                present = uid in self._undo_store
+            if not present:
                 continue
             res = self.undo_edit(uid)
             count += 1
@@ -219,23 +243,25 @@ class Workspace:
         return True
 
     def delete_file_with_undo(self, rel_path: str) -> dict[str, Any]:
-        """Delete a file while recording a full undo snapshot so the deletion can be reverted."""
+        """Delete a file while recording a byte-exact undo snapshot so the deletion can be reverted."""
         p = self.safe_path(rel_path)
         if p == self.root or not p.exists() or p.is_dir():
             raise FileNotFoundError(f"Silinecek dosya bulunamadi: {rel_path}")
         rel = p.relative_to(self.root).as_posix()
-        old_text = p.read_text(encoding="utf-8", errors="replace")
+        old_bytes = p.read_bytes()
+        old_text = old_bytes.decode("utf-8", errors="replace").replace("\r\n", "\n")
         p.unlink()
         undo_id = uuid.uuid4().hex[:10]
-        self._undo_store[undo_id] = {
-            "abs_path": str(p),
-            "rel_path": rel,
-            "existed": True,
-            "old_content": old_text,
-        }
-        if len(self._undo_store) > 120:
-            oldest = next(iter(self._undo_store))
-            del self._undo_store[oldest]
+        with self._lock:
+            self._undo_store[undo_id] = {
+                "abs_path": str(p),
+                "rel_path": rel,
+                "existed": True,
+                "old_bytes": old_bytes,
+            }
+            if len(self._undo_store) > 120:
+                oldest = next(iter(self._undo_store))
+                del self._undo_store[oldest]
         diff_lines = list(
             difflib.unified_diff(
                 old_text.splitlines(),

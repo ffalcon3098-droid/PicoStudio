@@ -168,7 +168,7 @@ class TestPicoStudioSuite(unittest.TestCase):
                     html = r.read().decode("utf-8")
                     self.assertEqual(r.status, 200)
                     self.assertIn("PicoStudio IDE", html)
-                    self.assertIn("v0.10.0", html)
+                    self.assertIn("v0.11.0", html)
                     self.assertIn("agentCtxPill", html)
                     self.assertIn("termErrBar", html)
                     self.assertIn("/static/style.css", html)
@@ -779,6 +779,75 @@ class TestPicoStudioSuite(unittest.TestCase):
             self.assertEqual(u_pairs[0]["left_type"], "empty")
             self.assertEqual(u_pairs[0]["right_type"], "add")
             self.assertEqual(u_pairs[0]["right_ln"], 1)
+
+    def test_13_v0110_audit_security_kv_cache_and_crlf_preservation(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            proj_root = pathlib.Path(td) / "projects"
+            p1 = proj_root / "app1"
+            p1.mkdir(parents=True)
+            outside = pathlib.Path(td) / "outside_dir"
+            outside.mkdir()
+
+            ws = Workspace(p1, projects_root=proj_root)
+
+            # 1) set_root enforces projects_root boundary (blocks arbitrary filesystem pivot)
+            with self.assertRaises(PermissionError):
+                ws.set_root(outside)
+
+            # 2) LF files stay LF on Windows (no silent CRLF corruption) & binary files rejected
+            lf_path = p1 / "unix_file.py"
+            lf_path.write_bytes(b"a = 1\nb = 2\n")
+            ws.write_file_with_diff("unix_file.py", "a = 1\nb = 3\n")
+            self.assertNotIn(b"\r\n", lf_path.read_bytes())
+
+            (p1 / "bin.dat").write_bytes(b"\x89PNG\x00\x00\x00")
+            with self.assertRaises(ValueError):
+                ws.read_file("bin.dat")
+
+            # 3) Epoch KV-cache-friendly compaction stays untouched below max_total_chars
+            conv = [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}]
+            for i in range(9):
+                conv.append({"role": "tool", "tool_call_id": f"t{i}", "content": "z" * 600})
+            same, did = compact_conversation(conv, keep_recent_tool_msgs=4, max_total_chars=88000)
+            self.assertFalse(did)
+            self.assertEqual(same[2]["content"], conv[2]["content"])
+
+            # 4) /api/media/upload-init works (import time present!) & /api/media/start blocks sibling-prefix bypass
+            arb = GPUArbiter(load_config())
+            term = TerminalManager(p1)
+            cstore = ChatSessionStore(pathlib.Path(td) / "_chats")
+            srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(arb, ws, term, chat_store=cstore, csrf_token="t11"))
+            srv.daemon_threads = True
+            t = threading.Thread(target=srv.serve_forever, daemon=True)
+            t.start()
+            base = f"http://127.0.0.1:{srv.server_address[1]}"
+            hdrs = {"Content-Type": "application/json", "X-PicoStudio-Token": "t11"}
+            try:
+                # Sibling prefix directory outside ws.root -> 403
+                evil_sib = proj_root / "app1_evil"
+                evil_sib.mkdir()
+                evil_img = evil_sib / "x.png"
+                evil_img.write_bytes(b"\x89PNG\r\n\x1a\n")
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(urllib.request.Request(
+                        f"{base}/api/media/start",
+                        data=json.dumps({"prompt": "test", "init_img": str(evil_img)}).encode("utf-8"),
+                        headers=hdrs, method="POST",
+                    ), timeout=5)
+                self.assertEqual(ctx.exception.code, 403)
+
+                # /api/workspace/select outside projects_root -> 403
+                with self.assertRaises(urllib.error.HTTPError) as ctx2:
+                    urllib.request.urlopen(urllib.request.Request(
+                        f"{base}/api/workspace/select",
+                        data=json.dumps({"path": str(outside)}).encode("utf-8"),
+                        headers=hdrs, method="POST",
+                    ), timeout=5)
+                self.assertEqual(ctx2.exception.code, 403)
+            finally:
+                term.stop_all()
+                srv.shutdown()
+                srv.server_close()
 
 
 if __name__ == "__main__":

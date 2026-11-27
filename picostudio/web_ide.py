@@ -18,7 +18,9 @@ import mimetypes
 import pathlib
 import re
 import secrets
+import sys
 import threading
+import time
 import urllib.parse
 import webbrowser
 from http import HTTPStatus
@@ -106,8 +108,13 @@ def make_handler(
                 return False, "Gecersiz veya eksik CSRF token (X-PicoStudio-Token)."
             return True, ""
 
-        def _body_json(self) -> dict[str, Any]:
-            n = int(self.headers.get("Content-Length", "0") or "0")
+        def _body_json(self, max_bytes: int = 4 * 1024 * 1024) -> dict[str, Any]:
+            try:
+                n = int(self.headers.get("Content-Length", "0") or "0")
+            except ValueError:
+                return {}
+            if n < 0 or n > max_bytes:
+                raise ValueError(f"Istek boyutu siniri asiyor ({n} > {max_bytes}).")
             raw = self.rfile.read(n) if n > 0 else b"{}"
             try:
                 return json.loads(raw.decode("utf-8")) if raw else {}
@@ -128,6 +135,7 @@ def make_handler(
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(raw)))
             self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Frame-Options", "DENY")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(raw)
@@ -250,7 +258,12 @@ def make_handler(
                 return
 
             path = urllib.parse.urlparse(self.path).path
-            body = self._body_json()
+            try:
+                max_b = 24 * 1024 * 1024 if path in ("/api/media/upload-init", "/api/agent/chat") else 4 * 1024 * 1024
+                body = self._body_json(max_bytes=max_b)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, status=413)
+                return
 
             # ---- Workspace ----
             if path == "/api/workspace/select":
@@ -258,6 +271,8 @@ def make_handler(
                     new_root = ws.set_root(str(body.get("path") or ""))
                     term_mgr.set_cwd_all(new_root)
                     self._json({"ok": True, "root": str(new_root)})
+                except PermissionError as exc:
+                    self._json({"error": str(exc)}, status=403)
                 except Exception as exc:
                     self._json({"error": str(exc)}, status=400)
                 return
@@ -521,7 +536,11 @@ def make_handler(
                 if "," not in data_url:
                     self._json({"error": "Gecersiz gorsel verisi."}, status=400)
                     return
-                raw_bytes = _b64.b64decode(data_url.split(",", 1)[1])
+                b64_part = data_url.split(",", 1)[1]
+                if len(b64_part) > 21 * 1024 * 1024:
+                    self._json({"error": "Gorsel 15 MB sinirini asiyor."}, status=413)
+                    return
+                raw_bytes = _b64.b64decode(b64_part)
                 if len(raw_bytes) > 15 * 1024 * 1024:
                     self._json({"error": "Gorsel 15 MB sinirini asiyor."}, status=413)
                     return
@@ -539,7 +558,11 @@ def make_handler(
                         (arbiter.picovid_dir / "outputs").resolve(),
                         ws.root.resolve(),
                     ]
-                    if not any(str(cand).startswith(str(rt)) for rt in allowed_roots) or not cand.exists():
+                    if (
+                        not any(cand.is_relative_to(rt) for rt in allowed_roots)
+                        or not cand.is_file()
+                        or cand.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp")
+                    ):
                         self._json({"error": "Gecersiz giris gorseli yolu."}, status=403)
                         return
                     init_img = str(cand)
@@ -699,7 +722,7 @@ def run_ide(
     httpd = PicoStudioHTTPServer((h, p), make_handler(arbiter, ws, term_mgr, chat_store=chat_store))
     url = f"http://{h}:{p}/"
     print("============================================================")
-    print(f"  PicoStudio Local IDE v0.10.0 -> {url}")
+    print(f"  PicoStudio Local IDE v0.11.0 -> {url}")
     print(f"  Aktif Proje                 -> {ws.root}")
     print(f"  Kodlama Motoru              -> {arbiter.picocode_dir}")
     print(f"  Video/Gorsel Motoru         -> {arbiter.picovid_dir}")

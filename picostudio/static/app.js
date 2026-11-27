@@ -546,24 +546,33 @@ async function persistCurrentChat(){
   }catch(e){}
 }
 async function selectChatSession(sid){
+  abortAgent();
   if(!sid){ newChatSession(); return; }
   const r = await fetch('/api/chat/session?id='+encodeURIComponent(sid)).then(x=>x.json());
   if(!r || !r.messages) return;
+  codeBlockStore = {};
+  for(const k of Object.keys(turnCheckpointStore)) delete turnCheckpointStore[k];
   currentChatId = r.id;
   chatHistory = r.messages;
   const feed = document.getElementById('chatFeed');
   feed.innerHTML = '';
+  let idx = 0;
   for(const m of chatHistory){
+    idx++;
     const d = document.createElement('div');
     d.className = 'msg' + (m.role==='user' ? ' user' : '');
     const who = m.role==='user' ? 'Sen' : 'Ajan';
-    d.innerHTML = `<div class="msg-hdr"><span>${who}</span><span>Kayıtlı</span></div><div>${m.role==='user'?escHtml(m.content):renderAgentMarkdown(m.content)}</div>`;
+    d.innerHTML = `<div class="msg-hdr"><span>${who}</span><span>Kayıtlı</span></div><div>${m.role==='user'?escHtml(m.content):renderAgentMarkdown(m.content, 's'+idx)}</div>`;
     feed.appendChild(d);
   }
   feed.scrollTop = feed.scrollHeight;
 }
 function newChatSession(){
-  currentChatId = null; chatHistory = [];
+  abortAgent();
+  currentChatId = null; chatHistory = []; codeBlockStore = {};
+  for(const k of Object.keys(turnCheckpointStore)) delete turnCheckpointStore[k];
+  const cp = document.getElementById('agentCtxPill');
+  if(cp){ cp.textContent = 'ctx: 0%'; cp.className = 'pill'; }
   document.getElementById('chatFeed').innerHTML = '';
   loadChatSessions();
 }
@@ -829,12 +838,14 @@ async function gitStage(path){ await fetch('/api/git/stage',{method:'POST',heade
 async function gitStageAll(){ await fetch('/api/git/stage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:''})}); await loadGitStatus(true); }
 async function gitUnstage(path){ await fetch('/api/git/unstage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})}); await loadGitStatus(true); }
 async function gitRevert(path){
-  if(!confirm(path + ' dosyasındaki değişiklikleri geri almak istiyor musunuz?')) return;
+  if(!confirm(path + ' dosyasındaki değişiklikleri geri almak istiyor musunuz?')) return false;
   const r = await fetch('/api/git/revert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
   if(r.ok){
     if(openTabs[path]){ delete openTabs[path]; openFile(path); }
     loadTree(); loadGitStatus(true);
+    return true;
   }
+  return false;
 }
 async function gitCommit(){
   const inp = document.getElementById('gitCommitMsg');
@@ -1287,7 +1298,11 @@ function stripAnsi(s){ return String(s||'').replace(/\x1b\[[0-9;]*m/g, ''); }
 
 function detectTerminalError(recent){
   const clean = recent.map(stripAnsi);
-  const errRe = /(Traceback \(most recent call last\):|\b(?:SyntaxError|NameError|TypeError|ValueError|AttributeError|ImportError|ModuleNotFoundError|AssertionError|KeyError|IndexError|ZeroDivisionError|RuntimeError|ReferenceError|RangeError):[^\n]*|^FAIL:\s+\S+|^ERROR:\s+\S+|FAILED \(|exit_code=[1-9]\d*|\[exit [1-9]\d*\])/i;
+  // If the latest command finished cleanly with exit code 0, suppress stale error banners
+  for(let i = clean.length - 1; i >= Math.max(0, clean.length - 4); i--){
+    if(/\[çıkış kodu:\s*0\]/i.test(clean[i])) return null;
+  }
+  const errRe = /(Traceback \(most recent call last\):|\b(?:SyntaxError|NameError|TypeError|ValueError|AttributeError|ImportError|ModuleNotFoundError|AssertionError|KeyError|IndexError|ZeroDivisionError|RuntimeError|ReferenceError|RangeError):[^\n]*|^FAIL:\s+\S+|^ERROR:\s+\S+|FAILED \(|exit_code=[1-9]\d*|\[exit [1-9]\d*\]|\[çıkış kodu:\s*[1-9]\d*\])/i;
   let lastHitIdx = -1;
   let headline = '';
   for(let i = clean.length - 1; i >= 0; i--){
@@ -1369,6 +1384,7 @@ function appendTermLines(lines, reset=false){
   if(!reset && lines && lines.length){
     const found = detectTerminalError(termRecentLines);
     if(found){ detectedTermErr = found; renderTermErrBanner(); }
+    else if(lines.some(l=>/\[çıkış kodu:\s*0\]/i.test(stripAnsi(l)))){ dismissTermErr(); }
   }
 }
 
@@ -1399,7 +1415,7 @@ async function loadTermSessions(){
   for(const s of r.sessions){
     const t = document.createElement('div');
     t.className = 'ttab' + (s.id===activeTermId?' active':'');
-    t.innerHTML = `${s.running?'<span class="dot"></span>':''}<span>${escHtml(s.name)}</span><span style="opacity:.55;padding-left:3px" onclick="event.stopPropagation();closeTerminalTab('${s.id}')">×</span>`;
+    t.innerHTML = `${s.running?'<span class="dot"></span>':''}<span>${escHtml(s.name)}</span><span style="opacity:.55;padding-left:3px" onclick="event.stopPropagation();closeTerminalTab(${escJsArg(s.id)})">×</span>`;
     t.onclick = ()=>selectTerminalTab(s.id);
     box.appendChild(t);
   }
@@ -1459,6 +1475,7 @@ async function runTerm(cmd){
   if(!cmd || !cmd.trim()) return;
   const clean = cmd.trim();
   lastTermCommand = clean;
+  termRecentLines = [];
   dismissTermErr();
   if(!termHistory.length || termHistory[termHistory.length-1] !== clean) termHistory.push(clean);
   termHistIdx = termHistory.length;
@@ -1665,20 +1682,23 @@ function askAiAboutFile(prefix){
   sendAgent();
 }
 
-function renderAgentMarkdown(txt){
+let msgSeqCounter = 0;
+
+function renderAgentMarkdown(txt, msgKey='m0'){
   const parts = txt.split(/```(\w*)\n([\s\S]*?)```/g);
   let html = '';
+  let blkIdx = 0;
   for(let i=0;i<parts.length;i+=3){
     html += escHtml(parts[i]||'').replace(/`([^`]+)`/g,'<code style="background:#0f172a;padding:1px 4px;border-radius:3px">$1</code>').replace(/\n/g,'<br>');
     if(i+2 < parts.length){
       const lang = parts[i+1] || 'code';
       const code = (parts[i+2] || '').trimEnd();
       if(!code.trim()) continue;
-      const id = 'cb_' + Math.random().toString(36).slice(2,9);
+      const id = `cb_${msgKey}_${blkIdx++}`;
       codeBlockStore[id] = code;
       const isShell = /^(sh|bash|powershell|ps1|cmd)$/i.test(lang);
       const actBtn = isShell
-        ? `<button class="sm primary" onclick="runTerm(codeBlockStore['${id}'])">Terminalde Çalıştır</button>`
+        ? `<button class="sm primary" onclick="if(confirm('Bu kabuk komutunu terminalde calistirmak istiyor musunuz?\\n\\n'+codeBlockStore['${id}']))runTerm(codeBlockStore['${id}'])">Terminalde Çalıştır</button>`
         : `<button class="sm primary" onclick="applyCodeToEditor('${id}')">Editöre Uygula</button>`;
       html += `<div class="code-blk"><div class="code-blk-h"><span>${escHtml(lang)}</span><div class="row" style="gap:4px">${actBtn}<button class="sm" onclick="navigator.clipboard.writeText(codeBlockStore['${id}'])">Kopyala</button></div></div><pre>${escHtml(code)}</pre></div>`;
     }
@@ -1800,9 +1820,17 @@ async function sendAgent(){
   const mode = document.getElementById('agentMode').value;
   const autoVerify = !!document.getElementById('chkAutoVerify')?.checked;
   const activePayload = (document.getElementById('chkIncludeFile').checked && activeTab && openTabs[activeTab])
-    ? {path: activeTab, content: openTabs[activeTab].content}
+    ? (mode === 'fast' ? {path: activeTab, content: openTabs[activeTab].content} : {path: activeTab})
     : null;
+  const msgKey = 'm' + (++msgSeqCounter);
   let full = ''; let toks = 0; const t0 = performance.now();
+  let rafPending = false;
+  const flushMd = ()=>{
+    rafPending = false;
+    aDiv.querySelector('.bd').innerHTML = renderAgentMarkdown(full, msgKey);
+    feed.scrollTop = feed.scrollHeight;
+  };
+  let completedOk = false;
   try{
     const resp = await fetch('/api/agent/chat',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -1812,6 +1840,7 @@ async function sendAgent(){
     if(!resp.ok){
       const err = await resp.json().catch(()=>({error:resp.statusText}));
       aDiv.querySelector('.bd').textContent = 'Hata: ' + (err.error||resp.status);
+      chatHistory.pop();
       return;
     }
     const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf='';
@@ -1881,7 +1910,7 @@ async function sendAgent(){
             full += ev.content; toks++;
             const sec = (performance.now()-t0)/1000;
             aDiv.querySelector('.st').textContent = `${toks} tok · ${(toks/Math.max(0.2,sec)).toFixed(1)} t/s`;
-            aDiv.querySelector('.bd').innerHTML = renderAgentMarkdown(full);
+            if(!rafPending){ rafPending = true; requestAnimationFrame(flushMd); }
           }else if(ev.type==='error'){
             aDiv.querySelector('.bd').textContent = 'Hata: ' + ev.error;
           }
@@ -1889,9 +1918,12 @@ async function sendAgent(){
         }catch(e){}
       }
     }
+    if(full) flushMd();
+    completedOk = true;
     chatHistory.push({role:'assistant', content:full});
     persistCurrentChat();
   }catch(e){
+    if(!completedOk) chatHistory.pop();
     aDiv.querySelector('.bd').textContent = (e.name==='AbortError') ? 'Durduruldu.' : ('Bağlantı hatası: ' + e);
   }finally{
     btn.disabled = false; abtn.style.display='none'; agentAbortCtrl = null; activeAgentReqId = null;

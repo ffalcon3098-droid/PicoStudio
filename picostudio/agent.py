@@ -311,22 +311,20 @@ def estimate_context_tokens(conv: list[dict[str, Any]]) -> int:
 def compact_conversation(
     conv: list[dict[str, Any]],
     *,
-    keep_recent_tool_msgs: int = 6,
-    max_total_chars: int = 44000,
+    keep_recent_tool_msgs: int = 4,
+    max_total_chars: int = 88000,
 ) -> tuple[list[dict[str, Any]], bool]:
     """
-    Shrink old bulky `role=='tool'` outputs when a multi-step agent turn grows large,
-    preserving system prompt, user messages, diffs, and the most recent tool outputs verbatim.
+    Hysteresis/epoch KV-cache-friendly compaction:
+    NEVER mutates earlier messages while total_chars <= max_total_chars (preserving 100% KV prefix hits!).
+    Only when crossing the high-water mark, batch-compacts older tool outputs once while keeping recent ones verbatim.
     """
     tool_indices = [i for i, m in enumerate(conv) if m.get("role") == "tool"]
-    total_chars = sum(
-        len(m["content"]) if isinstance(m.get("content"), str) else 256
-        for m in conv
-    )
-    if len(tool_indices) <= keep_recent_tool_msgs and total_chars <= max_total_chars:
+    total_chars = estimate_context_tokens(conv) * 4
+    if total_chars <= max_total_chars or len(tool_indices) <= keep_recent_tool_msgs:
         return conv, False
 
-    cutoff_idx = tool_indices[-keep_recent_tool_msgs] if len(tool_indices) > keep_recent_tool_msgs else len(conv)
+    cutoff_idx = tool_indices[-keep_recent_tool_msgs]
     compacted: list[dict[str, Any]] = []
     did_compact = False
     for i, m in enumerate(conv):
@@ -368,12 +366,12 @@ def _extract_fallback_tool_calls(text: str, step: int, allowed: set[str] | None 
 
 
 _DANGEROUS_CMD_PATTERNS = [
-    re.compile(r"\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r", re.I),
-    re.compile(r"\bremove-item\b[^\n]*-recurse[^\n]*-force|\bremove-item\b[^\n]*-force[^\n]*-recurse", re.I),
-    re.compile(r"\b(del|erase|rmdir|rd)\b[^\n]*(/[sqf]\s*){2,}", re.I),
-    re.compile(r"\bgit\s+reset\s+--hard\b|\bgit\s+clean\s+-[a-z]*f|\bgit\s+push\s+[^\n]*--force\b", re.I),
-    re.compile(r"\b(invoke-expression|iex)\b|\|\s*(sh|bash|powershell|pwsh)\b", re.I),
-    re.compile(r"\b(format-volume|diskpart|shutdown|stop-computer|reg\s+delete)\b", re.I),
+    re.compile(r"\brm\s+[^\n]*(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r|-r\b[^\n]*-f\b|-f\b[^\n]*-r\b)", re.I | re.S),
+    re.compile(r"\b(remove-item|ri|del|erase|rmdir|rd)\b[^\n]*(-rec\w*[^\n]*-fo\w*|-fo\w*[^\n]*-rec\w*|-r\b[^\n]*-fo\w*|/[sqf]\s*[^\n]*/[sqf])", re.I | re.S),
+    re.compile(r"\bgit\s+(reset\s+--hard|clean\s+-[a-z]*f|push\s+[^\n]*(--force|-f\b)|checkout\s+--\s+\.|restore\s+\.)", re.I | re.S),
+    re.compile(r"\b(invoke-expression|iex)\b|\|\s*(sh|bash|powershell|pwsh)\b|-(enc|encodedcommand)\b", re.I | re.S),
+    re.compile(r"\[(?:system\.)?io\.(?:directory|file)\]::delete\b|\bshutil\.rmtree\b|\bfs\.rmSync\b", re.I | re.S),
+    re.compile(r"\b(format-volume|format\s+[a-z]:|diskpart|shutdown|stop-computer|reg\s+delete)\b", re.I | re.S),
 ]
 
 
@@ -464,8 +462,8 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
 
         if name == "edit_file":
             rel = str(args.get("path") or "")
-            target = str(args.get("target") or "")
-            replacement = str(args.get("replacement") or "")
+            target = str(args.get("target") or "").replace("\r\n", "\n")
+            replacement = str(args.get("replacement") or "").replace("\r\n", "\n")
             data = ws.read_file(rel)
             if not target or target not in data["content"]:
                 return f"ERROR: Target text not found in {rel}. Read the file first.", None
@@ -504,19 +502,30 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
             if danger:
                 return f"ERROR: {danger}", None
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            res = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", cmd],
+            env = _build_ws_env(ws)
+            env["PYTHONIOENCODING"] = "utf-8"
+            ps_cmd = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " + cmd
+            proc = subprocess.Popen(
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
                 cwd=str(ws.root),
-                env=_build_ws_env(ws),
-                capture_output=True,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=45,
                 creationflags=flags,
             )
-            out = ((res.stdout or "") + ("\n" + res.stderr if res.stderr else "")).strip()
-            return f"exit_code={res.returncode}\n{out[:5000]}", None
+            try:
+                out, _ = proc.communicate(timeout=45)
+            except subprocess.TimeoutExpired:
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, creationflags=flags)
+                else:
+                    proc.kill()
+                return "ERROR: Command timed out after 45s (process tree terminated).", None
+            return f"exit_code={proc.returncode}\n{(out or '').strip()[:5000]}", None
 
         return f"ERROR: Unknown tool {name}", None
     except Exception as exc:
@@ -596,6 +605,17 @@ def run_agent_stream(
     url = f"http://{arbiter.llm_host}:{arbiter.llm_port}/v1/chat/completions"
     at_context = extract_at_file_context(ws, user_messages)
     project_rules = load_project_rules(ws)
+    plan_ctx = int((arbiter.coding_plan or {}).get("ctx_size") or 0)
+    is_inkling = "inkling" in (arbiter.coding_model or "").lower()
+    ctx_limit = plan_ctx if plan_ctx >= 2048 else (16384 if is_inkling else 32768)
+    sampling_extra: dict[str, Any] = {
+        "temperature": 0.4 if is_inkling else 0.3,
+        "top_p": 0.95 if is_inkling else 0.9,
+        "min_p": 0.01 if is_inkling else 0.05,
+        "cache_prompt": True,
+    }
+    if is_inkling:
+        sampling_extra["reasoning_budget"] = 1536
 
     # 1) Fast mode: direct complete answer using snapshot (NO tools)
     if mode == "fast":
@@ -610,17 +630,17 @@ def run_agent_stream(
             f"{snapshot}{project_rules}{active_block}{at_context}"
         )
         conv_fast: list[dict[str, Any]] = [{"role": "system", "content": fast_sys}] + list(user_messages)
-        yield {"type": "metrics", "step": 1, "max_steps": 1, "est_ctx_tokens": estimate_context_tokens(conv_fast), "ctx_limit": 32768, "compacted": False}
+        yield {"type": "metrics", "step": 1, "max_steps": 1, "est_ctx_tokens": estimate_context_tokens(conv_fast), "ctx_limit": ctx_limit, "compacted": False}
         yield {"type": "status", "text": "Proje bağlamıyla yanıt üretiliyor..."}
-        use_prefill = "inkling" in (arbiter.coding_model or "").lower()
+        use_prefill = is_inkling
         prefill = "### " if use_prefill else ""
         msgs_send = conv_fast + ([{"role": "assistant", "content": prefill}] if use_prefill else [])
         payload = {
             "model": arbiter.coding_model,
             "messages": msgs_send,
-            "temperature": 0.3,
             "max_tokens": 1400,
             "stream": True,
+            **sampling_extra,
         }
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
         full = [prefill] if prefill else []
@@ -654,28 +674,35 @@ def run_agent_stream(
     allowed_names = READONLY_TOOL_NAMES if is_plan_mode else KNOWN_TOOL_NAMES
     effective_steps = min(max_steps, 6) if is_plan_mode else max_steps
 
-    root_items = [x["name"] + ("/" if x["kind"] == "dir" else "") for x in ws.list_tree(max_depth=1, max_items=40)]
-    active_hint = f" Open file: `{active_file['path']}`." if (active_file and active_file.get("path")) else ""
+    # Keep messages[0] immutable across turns for 100% KV prefix caching; attach per-turn context to latest user msg
+    active_hint = f"\n[Active editor file: `{active_file['path']}`]" if (active_file and active_file.get("path")) else ""
     if is_plan_mode:
         sys_prompt = (
-            f"You are PicoStudio Planning Agent v3. Workspace: `{ws.root.name}` "
-            f"(root entries: {', '.join(root_items[:25])}).{active_hint} "
+            f"You are PicoStudio Planning Agent v3. Workspace: `{ws.root.name}`. "
             "You are in READ-ONLY PLAN MODE. Do NOT modify files. "
             "Use `repo_map`, `find_symbols`, `list_files`, `read_file`, `search_code`, `git_status`, or `git_diff` to inspect efficiently, "
             "then produce a clear, numbered multi-file implementation plan (1. Hedef Dosyalar, 2. Yapılacak Değişiklikler, 3. Test/Doğrulama) in the user's language."
-            f"{project_rules}{at_context}"
+            f"{project_rules}"
         )
     else:
         sys_prompt = (
-            f"You are PicoStudio Coding Agent v3. Workspace: `{ws.root.name}` "
-            f"(root entries: {', '.join(root_items[:25])}).{active_hint} "
+            f"You are PicoStudio Coding Agent v3. Workspace: `{ws.root.name}`. "
             "Use `repo_map` or `find_symbols` first to locate code quickly, `git_status`/`git_diff` to inspect changes, "
             "and `edit_file` (preferred for targeted edits), `write_file`, `delete_file`, or `run_terminal` to implement and verify. "
             "If an edit reports `[SYNTAX ERROR]`, fix it immediately. Be brief; reply in the user's language."
-            f"{project_rules}{at_context}"
+            f"{project_rules}"
         )
 
-    conv: list[dict[str, Any]] = [{"role": "system", "content": sys_prompt}] + list(user_messages)
+    msgs_copy = [dict(m) for m in user_messages]
+    turn_extra = (active_hint + at_context).strip()
+    if turn_extra and msgs_copy and msgs_copy[-1].get("role") == "user":
+        last_c = msgs_copy[-1].get("content")
+        if isinstance(last_c, str):
+            msgs_copy[-1]["content"] = last_c + "\n\n" + turn_extra
+        elif isinstance(last_c, list):
+            msgs_copy[-1]["content"] = list(last_c) + [{"type": "text", "text": "\n" + turn_extra}]
+
+    conv: list[dict[str, Any]] = [{"role": "system", "content": sys_prompt}] + msgs_copy
     final_chunks: list[str] = []
     modified_files: list[str] = []
     turn_undo_ids: list[str] = []
@@ -703,14 +730,14 @@ def run_agent_stream(
             yield {"type": "done", "full_text": "".join(final_chunks)}
             return
         step += 1
-        conv, did_compact = compact_conversation(conv)
+        conv, did_compact = compact_conversation(conv, max_total_chars=int(ctx_limit * 4 * 0.72))
         est_toks = estimate_context_tokens(conv)
         yield {
             "type": "metrics",
             "step": step,
             "max_steps": effective_steps,
             "est_ctx_tokens": est_toks,
-            "ctx_limit": 32768,
+            "ctx_limit": ctx_limit,
             "compacted": did_compact,
         }
         phase_lbl = "Plan hazırlanıyor" if is_plan_mode else "Ajan v3 düşünüyor"
@@ -720,9 +747,9 @@ def run_agent_stream(
             "messages": conv,
             "tools": tools_spec,
             "tool_choice": "auto",
-            "temperature": 0.25,
             "max_tokens": 4096,
             "stream": True,
+            **sampling_extra,
         }
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
         step_content: list[str] = []

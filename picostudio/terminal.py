@@ -32,6 +32,7 @@ class TerminalSession:
         self.running: bool = False
         self.last_exit: int | None = None
         self.history: list[str] = []
+        self._closed: bool = False
         self._seq: int = 0
         self._entries: list[tuple[int, str]] = []
         self._emit(f"\x1b[36m[PicoStudio Terminal · {self.name}]\x1b[0m {self.cwd}")
@@ -152,11 +153,11 @@ class TerminalSession:
                 if len(self.history) > 150:
                     self.history = self.history[-150:]
 
-        # Built-in persistent `cd`
+        # Built-in persistent `cd` (only bare `cd <dir>`, not chained `cd a && cmd`)
         if cmd.lower() == "cd":
             self._emit(str(self.cwd))
             return True, str(self.cwd)
-        if cmd.lower().startswith("cd "):
+        if cmd.lower().startswith("cd ") and not any(op in cmd for op in ("&&", "||", ";", "|")):
             target_raw = cmd[3:].strip().strip('"').strip("'")
             target = (self.cwd / target_raw).resolve() if not pathlib.Path(target_raw).is_absolute() else pathlib.Path(target_raw).resolve()
             if target.exists() and target.is_dir():
@@ -192,18 +193,26 @@ class TerminalSession:
         env["CLICOLOR_FORCE"] = "1"
         env["TERM"] = "xterm-256color"
 
-        proc = subprocess.Popen(
-            shell_cmd,
-            cwd=cwd_str,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            creationflags=flags,
-        )
+        try:
+            proc = subprocess.Popen(
+                shell_cmd,
+                cwd=cwd_str,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                creationflags=flags,
+            )
+        except OSError as exc:
+            with self.cond:
+                self.running = False
+                self.proc = None
+                self.cond.notify_all()
+            self._emit(f"\x1b[31mHATA: Komut baslatilamadi: {exc}\x1b[0m")
+            return False, str(exc)
         with self.cond:
             self.proc = proc
             self.cond.notify_all()
@@ -225,9 +234,9 @@ class TerminalSession:
                     pass
             code = proc.wait()
             with self.cond:
-                self.last_exit = code
-                self.running = False
                 if self.proc is proc:
+                    self.last_exit = code
+                    self.running = False
                     self.proc = None
                 self.cond.notify_all()
             color = "\x1b[32m" if code == 0 else "\x1b[31m"
@@ -256,12 +265,16 @@ class TerminalSession:
         last_cwd: str | None = None
         while True:
             with self.cond:
+                if self._closed:
+                    return
                 new_items = [(s, txt) for s, txt in self._entries if s > cursor]
                 cur_running = self.running
                 cur_cwd = str(self.cwd)
                 cur_exit = self.last_exit
                 if not new_items and cur_running == last_running and cur_cwd == last_cwd:
                     self.cond.wait(timeout=heartbeat_s)
+                    if self._closed:
+                        return
                     new_items = [(s, txt) for s, txt in self._entries if s > cursor]
                     cur_running = self.running
                     cur_cwd = str(self.cwd)
@@ -324,18 +337,24 @@ class TerminalManager:
             return first
 
     def close_session(self, sid: str) -> bool:
+        reset_only = False
         with self.lock:
             sess = self.sessions.get(sid)
             if sess is None:
                 return False
             if len(self.sessions) <= 1:
-                # Reset instead of deleting the last tab
-                sess.stop()
-                sess.clear()
-                return True
-            del self.sessions[sid]
-            if self.active_id == sid:
-                self.active_id = next(iter(self.sessions.keys()))
+                reset_only = True
+            else:
+                del self.sessions[sid]
+                if self.active_id == sid:
+                    self.active_id = next(iter(self.sessions.keys()))
+        if reset_only:
+            sess.stop()
+            sess.clear()
+            return True
+        with sess.cond:
+            sess._closed = True
+            sess.cond.notify_all()
         sess.stop()
         return True
 
@@ -345,7 +364,9 @@ class TerminalManager:
             self.default_cwd = resolved
             sessions = list(self.sessions.values())
         for s in sessions:
-            if not s.running:
+            with s.lock:
+                is_run = s.running
+            if not is_run:
                 s.set_cwd(resolved)
 
     def list_sessions(self) -> list[dict[str, Any]]:
