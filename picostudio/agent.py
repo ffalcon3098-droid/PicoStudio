@@ -821,18 +821,21 @@ def run_agent_stream(
         phase_lbl = "Final yanıt yazılıyor" if force_final else ("Plan/İnceleme hazırlanıyor" if is_plan_mode else "Ajan v3 düşünüyor")
         yield {"type": "status", "text": f"{phase_lbl} (adım {min(step, effective_steps)}/{effective_steps})..."}
         step_sampling = dict(sampling_extra)
-        if "reasoning_budget" in step_sampling and not force_final and step < effective_steps:
-            step_sampling["reasoning_budget"] = min(int(step_sampling["reasoning_budget"]), 512)
+        if "reasoning_budget" in step_sampling:
+            if not force_final and step < effective_steps:
+                step_sampling["reasoning_budget"] = min(int(step_sampling["reasoning_budget"]), 512)
+            elif force_final:
+                step_sampling["reasoning_budget"] = min(int(step_sampling["reasoning_budget"]), 768)
         payload: dict[str, Any] = {
             "model": arbiter.coding_model,
             "messages": conv,
-            "max_tokens": 4096,
+            # Keep `tools` identical on force_final to preserve 100% KV-cache prefix (tool_choice='none' blocks tool calls)
+            "tools": tools_spec,
+            "tool_choice": "none" if force_final else "auto",
+            "max_tokens": 2048 if compact_budget else 4096,
             "stream": True,
             **step_sampling,
         }
-        if not force_final:
-            payload["tools"] = tools_spec
-            payload["tool_choice"] = "auto"
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
         step_content: list[str] = []
         tool_calls_map: dict[int, dict[str, Any]] = {}
