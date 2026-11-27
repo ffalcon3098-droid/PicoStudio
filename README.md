@@ -7,6 +7,10 @@
 
 **PicoStudio** unifies your local **Coding Agent v3 ([PicoCode](https://github.com/ffalcon3098-droid/PicoCode) · Qwen3-Coder-30B-A3B MoE, Inkling 2 Mini Vision, Qwen2.5-Coder-7B)** and **Video/Image Studio ([localVid / PicoVid](https://github.com/ffalcon3098-droid/localVid) · LTX-2.3 22B Distilled 1.1 Audio+Video, Wan 2.2 TI2V-5B, Z-Image-Turbo)** into a single zero-dependency **English-first 3-pane Dark/Light Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Side-by-Side Diff & Multi-File Review**, **Multi-Clip Timeline Editor (`xfade` + stereo `acrossfade`)**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **4–6 GB VRAM GPU Arbiter**.
 
+<p align="center">
+  <img src="docs/assets/terminal_showcase.svg" alt="PicoStudio v0.12.0 Unified CLI, Live GPU Arbiter & Model Inventory" width="100%">
+</p>
+
 ---
 
 ## Hardware & AMD/NVIDIA Compatibility
