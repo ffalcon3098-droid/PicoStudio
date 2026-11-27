@@ -89,7 +89,7 @@ class TestPicoStudioSuite(unittest.TestCase):
             self.assertIn("x = 42", read_txt)
 
     def test_02_terminal_pro_multitab_stdin_and_autocomplete(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             sub = pathlib.Path(td) / "subproj"
             sub.mkdir()
             (sub / "alpha_script.py").write_text("print('hi')\n", encoding="utf-8")
@@ -127,15 +127,48 @@ class TestPicoStudioSuite(unittest.TestCase):
             self.assertTrue(mgr.close_session(t2.id))
             self.assertEqual(len(mgr.list_sessions()), 1)
             mgr.stop_all()
+            time.sleep(0.15)
 
     def test_03_arbiter_discovers_sibling_models(self) -> None:
-        arb = GPUArbiter(load_config())
-        inv = arb.get_inventory()
-        c_ids = {m["id"] for m in inv["coding_models"]}
-        self.assertIn("inkling2-mini", c_ids)
-        self.assertGreaterEqual(len(inv["media_models"]), 1)
-        st = arb.get_status()
-        self.assertEqual(st["owner"], "idle")
+        cfg = load_config()
+        has_siblings = (
+            (pathlib.Path(cfg["picocode_dir"]) / "configs" / "models_registry.json").exists()
+            and (pathlib.Path(cfg["picovid_dir"]) / "configs" / "models_registry.json").exists()
+        )
+        if has_siblings:
+            arb = GPUArbiter(cfg)
+            inv = arb.get_inventory()
+            c_ids = {m["id"] for m in inv["coding_models"]}
+            self.assertIn("inkling2-mini", c_ids)
+            self.assertGreaterEqual(len(inv["media_models"]), 1)
+            st = arb.get_status()
+            self.assertEqual(st["owner"], "idle")
+            return
+
+        # Standalone / CI runner without sibling repos: verify discovery via temporary mock sibling registries
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+            root = pathlib.Path(td)
+            pc_cfg = root / "PicoCode" / "configs"
+            pv_cfg = root / "localVid" / "configs"
+            pc_cfg.mkdir(parents=True)
+            pv_cfg.mkdir(parents=True)
+            (pc_cfg / "models_registry.json").write_text(json.dumps({
+                "files": {"inkling_gguf": {"path": "models/inkling.gguf", "expected_bytes": 1024}},
+                "models": {"inkling2-mini": {"label": "Inkling 2 Mini", "model_file": "inkling_gguf"}},
+            }), encoding="utf-8")
+            (pv_cfg / "models_registry.json").write_text(json.dumps({
+                "files": {"ltx23_distilled_q4_k_m": {"path": "models/ltx23.gguf"}},
+            }), encoding="utf-8")
+            mock_cfg = dict(cfg)
+            mock_cfg["picocode_dir"] = str(root / "PicoCode")
+            mock_cfg["picovid_dir"] = str(root / "localVid")
+            arb = GPUArbiter(mock_cfg)
+            inv = arb.get_inventory()
+            c_ids = {m["id"] for m in inv["coding_models"]}
+            self.assertIn("inkling2-mini", c_ids)
+            self.assertGreaterEqual(len(inv["media_models"]), 1)
+            st = arb.get_status()
+            self.assertEqual(st["owner"], "idle")
 
     def test_04_cli_subcommands(self) -> None:
         p = build_parser()
