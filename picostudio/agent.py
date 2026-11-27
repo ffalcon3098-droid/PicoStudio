@@ -948,6 +948,9 @@ def run_agent_stream(
             "content": "".join(step_content) or None,
             "tool_calls": tool_calls,
         })
+        n_calls = max(1, len(tool_calls))
+        step_char_budget = 6400 if compact_budget else 11000
+        per_call_cap = max(2200, step_char_budget // n_calls) if n_calls > 1 else 0
 
         for tc in tool_calls:
             fn_name = tc["function"]["name"]
@@ -985,6 +988,11 @@ def run_agent_stream(
             else:
                 yield {"type": "tool", "name": fn_name, "args": parsed_args}
                 result_text, change_info = execute_tool(ws, fn_name, parsed_args, compact_budget=compact_budget)
+                if per_call_cap and fn_name in READONLY_TOOL_NAMES and len(result_text) > per_call_cap:
+                    result_text = (
+                        result_text[:per_call_cap].rstrip()
+                        + "\n... [paralel adım bütçesi nedeniyle kırpıldı; devamı için read_file(start_line, end_line) çağırın]"
+                    )
 
             if change_info:
                 modified_files.append(change_info["path"])
