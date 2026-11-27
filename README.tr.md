@@ -5,6 +5,8 @@
 
 > [For English documentation, see README.md](README.md) · **Platform:** Windows 10/11 (x64) · **Sıfır harici Python bağımlılığı** (saf stdlib) · **GPU Desteği:** AMD Radeon (Vulkan) & NVIDIA GeForce GTX/RTX (CUDA 12.4 / Vulkan)
 
+> **Durum / Bilinen Sınırlar (Beta):** Fiziksel testler **AMD Radeon RX 5600 XT (6 GB VRAM) + 32 GB RAM (Windows 11)** üzerinde doğrulandı. NVIDIA CUDA 12.4 yolu kardeş kurulumlarla otomatik ayarlanır ancak henüz **topluluk testine açıktır**; şimdilik **yalnızca Windows 10/11 x64** desteklenir. Sorun bildirimi veya benchmark paylaşımı için `.\picostudio.cmd status` çıktısıyla GitHub Issue açabilirsiniz.
+
 **PicoStudio**, elinizdeki yerel **Kod Ajanı v3'ü ([PicoCode](https://github.com/ffalcon3098-droid/PicoCode) · Qwen3-Coder-30B-A3B MoE, Inkling 2 Mini Vision, Qwen2.5-Coder-7B)** ve **Video/Görsel Motorlarını ([localVid / PicoVid](https://github.com/ffalcon3098-droid/localVid) · LTX-2.3 22B Distilled 1.1 Ses+Video, Wan 2.2 TI2V-5B, Z-Image-Turbo)** tek bir sıfır bağımlılıklı **İngilizce varsayılan 3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Yan Yana (Side-by-Side) Diff & Çok Dosyalı İnceleme**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ve otomatik **4–6 GB VRAM GPU Nöbetçisi** ile çalıştırır.
 
 <p align="center">
@@ -35,8 +37,13 @@ git clone https://github.com/ffalcon3098-droid/localVid.git
 git clone https://github.com/ffalcon3098-droid/PicoStudio.git
 
 # 2. PicoCode (ve video/görsel için opsiyonel localVid) içinde tek tıkla kurulumu çalıştırın
-cd PicoCode; .\setup.cmd; cd ..
-cd localVid; .\setup.cmd; cd ..
+cd PicoCode
+.\setup.cmd
+cd ..
+
+cd localVid
+.\setup.cmd
+cd ..
 
 # 3. PicoStudio Yerel Web IDE'yi başlatın (http://127.0.0.1:7900)
 cd PicoStudio
