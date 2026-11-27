@@ -1773,13 +1773,65 @@ async function startMedia(){
 }
 async function stopMedia(){ await fetch('/api/media/stop',{method:'POST'}); pollStatus(); }
 
+let ideTimeline = [];
+function addToIdeTimeline(name, label, ev){
+  if(ev) ev.stopPropagation();
+  ideTimeline.push({name, label: label || name});
+  renderIdeTimelineList();
+}
+function moveIdeTimeline(i, d){
+  const j = i + d;
+  if(j < 0 || j >= ideTimeline.length) return;
+  const t = ideTimeline[i]; ideTimeline[i] = ideTimeline[j]; ideTimeline[j] = t;
+  renderIdeTimelineList();
+}
+function removeIdeTimeline(i){ ideTimeline.splice(i, 1); renderIdeTimelineList(); }
+function clearIdeTimeline(){ ideTimeline = []; renderIdeTimelineList(); const st=document.getElementById('ideTlStatus'); if(st) st.textContent=''; }
+function renderIdeTimelineList(){
+  const el = document.getElementById('ideTlList'); if(!el) return;
+  if(!ideTimeline.length){ el.innerHTML='Aşağıdaki galeriden <b>+</b> ile klipleri sıraya ekleyin.'; return; }
+  el.innerHTML = ideTimeline.map((c,i)=>`
+    <div class="row" style="gap:4px;background:var(--bg);border:1px solid var(--b);border-radius:6px;padding:3px 6px">
+      <span style="color:#c084fc;font-weight:700">#${i+1}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx)" title="${escHtml(c.name)}">${escHtml(c.label)}</span>
+      <button class="sm" onclick="moveIdeTimeline(${i},-1)">▲</button>
+      <button class="sm" onclick="moveIdeTimeline(${i},1)">▼</button>
+      <button class="sm danger" onclick="removeIdeTimeline(${i})">×</button>
+    </div>`).join('');
+}
+async function renderIdeTimeline(){
+  if(!ideTimeline.length){ alert('Once zaman cizelgesine klip ekleyin.'); return; }
+  const btn = document.getElementById('ideTlBtn');
+  const st = document.getElementById('ideTlStatus');
+  btn.disabled = true; st.textContent = 'Kurgu birlestiriliyor (xfade + stereo ses)...';
+  try{
+    const r = await fetch('/api/media/timeline',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        clips: ideTimeline.map(c=>({name:c.name})),
+        transition: document.getElementById('ideTlTrans').value,
+        transition_sec: parseFloat(document.getElementById('ideTlDur').value),
+      })
+    });
+    const j = await r.json();
+    if(r.ok && j.ok){
+      st.textContent = `✓ Hazır: ${j.name} (${j.duration_sec}s · ${j.size_mb} MB)`;
+      loadMediaGallery();
+      previewMedia(j.name, 'video');
+    } else st.textContent = 'Hata: ' + (j.error||'Kurgu basarisiz');
+  }finally{ btn.disabled = false; }
+}
+
 async function loadMediaGallery(){
   const items = await fetch('/api/media/outputs').then(x=>x.json());
   const g = document.getElementById('mediaGallery');
   g.innerHTML = items.length ? items.map(it=>`
     <div class="gitem" onclick="previewMedia(${escJsArg(it.name)},${escJsArg(it.kind)})">
-      <div style="color:${it.kind==='video'?'#c084fc':'var(--acc)'};font-weight:700">${it.kind==='video'?'▶ MP4':'🖼 PNG'} · ${it.size_mb} MB</div>
-      <div class="gname">${escHtml(it.name)}</div>
+      <div class="row" style="justify-content:space-between;gap:4px">
+        <span style="color:${it.kind==='video'?'#c084fc':'var(--acc)'};font-weight:700">${it.kind==='video'?'▶ MP4':'🖼 PNG'} · ${it.size_mb} MB</span>
+        ${it.kind==='video'?`<button class="sm" title="Zaman çizelgesine ekle" onclick="addToIdeTimeline(${escJsArg(it.name)},${escJsArg(it.label||it.name)},event)">+</button>`:''}
+      </div>
+      <div class="gname" title="${escHtml(it.name)}">${escHtml(it.label||it.name)}</div>
     </div>`).join('') : '<div style="color:var(--mut);font-size:12px">Henüz çıktı yok.</div>';
 }
 

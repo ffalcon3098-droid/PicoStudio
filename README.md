@@ -1,13 +1,19 @@
-# PicoStudio v0.7.0 — Hardened & Modular Local IDE Pro, Native FIM, Terminal Pro, Git & Multi-Model AI Studio
+# PicoStudio v0.8.0 — Local IDE Pro, Qwen3-Coder-30B, LTX-2.3 Audio+Video & Timeline Studio
 
 > [Türkçe dokümantasyon için README.tr.md](README.tr.md)
 
-**PicoStudio** unifies your local **Coding Agents (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** and **Video/Image Studio (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** into a single zero-dependency **3-pane Dark/Light Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Visual Diff**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **6 GB VRAM GPU Arbiter**.
+**PicoStudio** unifies your local **Coding Agents (`PicoCode` · Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** and **Video/Image Studio (`PicoVid` · LTX-2.3 22B Distilled 1.1 Audio+Video + Z-Image-Turbo)** into a single zero-dependency **3-pane Dark/Light Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Visual Diff**, **Multi-Clip Timeline Editor (`xfade` + stereo `acrossfade`)**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **6 GB VRAM GPU Arbiter**.
 
 ---
 
 ## Highlights
 
+- **LTX-2.3 22B Audio+Video Studio, I2V Upload & Multi-Clip Timeline Editor (`v0.8.0`):**
+  - **LTX-2.3 22B Distilled v1.1 (8-Step · 48 kHz Stereo Audio + Video):** T2V, I2V, and Z-Image → LTX-2.3 Studio workflows on 6 GB VRAM (`AMD RX 5600 XT Vulkan` / `NVIDIA CUDA`).
+  - **In-IDE I2V Image Upload (`/api/media/upload-init`) & Live Step Progress Bar:** Upload any PNG/JPG/WEBP directly in the Video tab to animate it with synchronized stereo sound, plus live `1/8..8/8` DiT, Video VAE, Audio VAE, and Cinema HD telemetry.
+  - **Audio-Preserving Cinema HD (`1280×768 @ 32 fps`):** 2× Vulkan Real-ESRGAN AI Upscale + 32 fps frame interpolation preserving LTX-2.3's 48 kHz Stereo AAC audio.
+  - **Multi-Clip Video Timeline & Transitions (`/api/media/timeline`):** Queue multiple clips from the gallery, reorder them, choose smooth transitions (`dissolve`, `fadeblack`, `wipeleft`, `smoothleft`, `circleopen`, `cut`) with synchronized stereo `acrossfade`, and export one unified H.264+AAC MP4.
+  - **Qwen3-Coder-30B-A3B Default Coding Engine + Stale `.pyc` Self-Heal Fix (`PYTHONDONTWRITEBYTECODE=1`).**
 - **Security Hardening, Native `/infill` FIM & Modular Architecture (`v0.7.0`):**
   - **Localhost Security Shield:** Strict `Host` allowlist (DNS rebinding guard), Same-Origin + `application/json` enforcement, per-session random CSRF token (`X-PicoStudio-Token`), `create_project` boundary guard, and zero inline single-quote XSS (`escJsArg`).
   - **Modular Frontend (`picostudio/static/`):** Decomposed the 2,881-line monolith into clean `index.html`, `style.css`, `app.js`, and a slim ~470-line `web_ide.py`.

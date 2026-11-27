@@ -221,8 +221,14 @@ def make_handler(
                 self._json(arbiter.list_media_outputs())
                 return
             if path == "/api/media/file":
-                name = pathlib.Path(qs.get("name", "")).name
-                fpath = arbiter.picovid_dir / "outputs" / name
+                out_root = (arbiter.picovid_dir / "outputs").resolve()
+                rel_name = qs.get("name", "").lstrip("/\\")
+                fpath = (out_root / rel_name).resolve()
+                try:
+                    fpath.relative_to(out_root)
+                except ValueError:
+                    self._json({"error": "Yetkisiz yol"}, status=403)
+                    return
                 if not fpath.exists() or not fpath.is_file():
                     self._json({"error": "Bulunamadi"}, status=404)
                     return
@@ -541,6 +547,46 @@ def make_handler(
                     init_img=init_img,
                 )
                 self._json({"ok": ok, "message": msg, "output": out_path}, status=200 if ok else 400)
+                return
+            if path == "/api/media/timeline":
+                raw_clips = list(body.get("clips") or [])
+                if not raw_clips:
+                    self._json({"error": "Zaman cizelgesi icin en az 1 klip secin."}, status=400)
+                    return
+                out_root = (arbiter.picovid_dir / "outputs").resolve()
+                clip_specs: list[dict[str, Any]] = []
+                for c in raw_clips:
+                    rel = str(c.get("name") if isinstance(c, dict) else c).lstrip("/\\")
+                    cand = (out_root / rel).resolve()
+                    try:
+                        cand.relative_to(out_root)
+                    except ValueError:
+                        self._json({"error": f"Yetkisiz klip yolu: {rel}"}, status=403)
+                        return
+                    if not cand.exists() or not cand.is_file():
+                        self._json({"error": f"Klip bulunamadi: {rel}"}, status=404)
+                        return
+                    clip_specs.append({
+                        "path": cand,
+                        "start": c.get("start") if isinstance(c, dict) else None,
+                        "end": c.get("end") if isinstance(c, dict) else None,
+                    })
+                pv_scripts = str(arbiter.picovid_dir / "scripts")
+                if pv_scripts not in sys.path:
+                    sys.path.insert(0, pv_scripts)
+                import postprocess as _pv_pp  # type: ignore
+                out_file = out_root / f"ide_timeline_{time.strftime('%Y%m%d_%H%M%S')}_{len(clip_specs)}clips.mp4"
+                try:
+                    res = _pv_pp.build_timeline_video(
+                        clip_specs,
+                        out_file,
+                        transition=str(body.get("transition") or "dissolve"),
+                        transition_sec=float(body.get("transition_sec") or 0.6),
+                        crf=15,
+                    )
+                    self._json({"ok": True, "name": out_file.relative_to(out_root).as_posix(), **res})
+                except Exception as exc:
+                    self._json({"error": str(exc)}, status=500)
                 return
             if path == "/api/media/stop":
                 arbiter.stop_media()

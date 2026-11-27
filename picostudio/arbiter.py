@@ -560,15 +560,24 @@ class GPUArbiter:
         threading.Thread(target=_watch_media, daemon=True).start()
         return True, f"Uretim baslatildi: {out_file.name}", str(out_file)
 
-    def list_media_outputs(self, limit: int = 24) -> list[dict[str, Any]]:
+    def list_media_outputs(self, limit: int = 36) -> list[dict[str, Any]]:
         out_dir = self.picovid_dir / "outputs"
         if not out_dir.exists():
             return []
-        files = [f for f in out_dir.iterdir() if f.is_file() and f.suffix.lower() in (".mp4", ".png", ".jpg", ".webp")]
+        files = [
+            f for f in out_dir.rglob("*")
+            if f.is_file()
+            and "_uploads" not in f.parts
+            and "bench_ltx23" not in str(f)
+            and f.suffix.lower() in (".mp4", ".png", ".jpg", ".webp")
+            and not f.name.endswith("_contact_sheet.png")
+            and not f.name.endswith("_sample_1280x768.png")
+        ]
         files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
         return [
             {
-                "name": f.name,
+                "name": f.relative_to(out_dir).as_posix(),
+                "label": f.name,
                 "kind": "video" if f.suffix.lower() == ".mp4" else "image",
                 "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
                 "mtime": int(f.stat().st_mtime),

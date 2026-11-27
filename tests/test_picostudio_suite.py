@@ -158,7 +158,7 @@ class TestPicoStudioSuite(unittest.TestCase):
                     html = r.read().decode("utf-8")
                     self.assertEqual(r.status, 200)
                     self.assertIn("PicoStudio IDE", html)
-                    self.assertIn("v0.7.0", html)
+                    self.assertIn("v0.8.0", html)
                     self.assertIn("/static/style.css", html)
                     self.assertIn("/static/app.js", html)
                     m_tok = re.search(r'name="ps-csrf"\s+content="([^"]+)"', html)

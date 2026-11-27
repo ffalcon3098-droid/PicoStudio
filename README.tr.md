@@ -1,13 +1,19 @@
-# PicoStudio v0.7.0 — Zırhlı & Modüler Yerel IDE Pro, Natif FIM, Terminal Pro, Git & Çoklu AI Stüdyosu
+# PicoStudio v0.8.0 — Yerel IDE Pro, Qwen3-Coder-30B, LTX-2.3 Ses+Video & Zaman Çizelgesi Stüdyosu
 
 > [For English documentation, see README.md](README.md)
 
-**PicoStudio**, elinizdeki yerel **Kodlama Ajanlarını (`PicoCode` · Qwen2.5-Coder-7B + Inkling 2 Mini)** ve **Video/Görsel Motorlarını (`PicoVid` · Wan 2.2 TI2V-5B Turbo, Wan 2.2 14B, Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Görsel Diff** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
+**PicoStudio**, elinizdeki yerel **Kodlama Ajanlarını (`PicoCode` · Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** ve **Video/Görsel Motorlarını (`PicoVid` · LTX-2.3 22B Distilled 1.1 Ses+Video + Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Görsel Diff**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
 
 ---
 
 ## Öne Çıkan Özellikler
 
+- **LTX-2.3 22B Ses+Video Stüdyosu, I2V Yükleme & Çoklu Klip Zaman Çizelgesi (`v0.8.0`):**
+  - **LTX-2.3 22B Distilled v1.1 (8 Adım · 48 kHz Stereo Ses + Video):** 6 GB VRAM'li kartlarda (`AMD RX 5600 XT Vulkan` / `NVIDIA CUDA`) T2V, I2V ve Z-Image → LTX-2.3 Stüdyo akışı.
+  - **IDE İçi I2V Görsel Yükleme (`/api/media/upload-init`) & Canlı İlerleme Çubuğu:** Video sekmesinden doğrudan PNG/JPG/WEBP yükleyip sesli videoya çevirin; `1/8..8/8` DiT, Video VAE, Ses VAE ve Sinema HD aşamalarını canlı izleyin.
+  - **Ses Korumalı Sinema HD (`1280×768 @ 32 fps`):** 2× Vulkan Real-ESRGAN + 32 fps akıcılık uygulanırken LTX-2.3'ün 48 kHz Stereo AAC sesi eksiksiz korunur.
+  - **Çoklu Klip Zaman Çizelgesi & Geçişler (`/api/media/timeline`):** Galerideki klipleri sıraya dizin, geçiş efektini (`dissolve`, `fadeblack`, `wipeleft`, `smoothleft`, `circleopen`, `cut`) ve süresini seçip senkronize stereo `acrossfade` ile tek MP4'te birleştirin.
+  - **Qwen3-Coder-30B-A3B Varsayılan Kodlama Motoru + `Oto-Test` Bayat `.pyc` Önbellek Düzeltmesi (`PYTHONDONTWRITEBYTECODE=1`).**
 - **Güvenlik Zırhı, Natif `/infill` FIM & Modüler Mimari (`v0.7.0`):**
   - **Localhost Güvenlik Kalkanı:** Katı `Host` kontrolü (DNS rebinding koruması), Same-Origin + `application/json` zorunluluğu, oturum bazlı rastgele CSRF token (`X-PicoStudio-Token`), `create_project` sınır koruması ve sıfır tek-tırnak `onclick` XSS (`escJsArg`).
   - **Modüler Ön Yüz (`picostudio/static/`):** `2.881` satırlık monolit temiz `index.html`, `style.css`, `app.js` ve ~470 satırlık `web_ide.py` olarak ayrıştırıldı.
