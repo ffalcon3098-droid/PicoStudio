@@ -1,13 +1,17 @@
-# PicoStudio v0.9.0 — Yerel IDE Pro, Kod Ajanı v3, Qwen3-Coder-30B & LTX-2.3 Ses+Video Stüdyosu
+# PicoStudio v0.10.0 — Yerel IDE Pro, Kod Ajanı v3, Yan Yana Diff İnceleme & LTX-2.3 Ses+Video Stüdyosu
 
 > [For English documentation, see README.md](README.md)
 
-**PicoStudio**, elinizdeki yerel **Kod Ajanı v3'ü (`PicoCode v0.2.0` · 30 tok/s'ye ulaşan Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** ve **Video/Görsel Motorlarını (`PicoVid` · LTX-2.3 22B Distilled 1.1 Ses+Video + Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Görsel Diff**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
+**PicoStudio**, elinizdeki yerel **Kod Ajanı v3'ü (`PicoCode v0.3.0` · 30 tok/s'ye ulaşan Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** ve **Video/Görsel Motorlarını (`PicoVid` · LTX-2.3 22B Distilled 1.1 Ses+Video + Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Yan Yana (Side-by-Side) Diff & Çok Dosyalı İnceleme**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
 
 ---
 
 ## Öne Çıkan Özellikler
 
+- **Yan Yana (Side-by-Side) Diff, Çok Dosyalı İnceleme & Terminal Tek Tık Hata Düzeltici (`v0.10.0`):**
+  - **2 Sütunlu Satır Numaralı Side-by-Side Diff (`◫ Yan Yana` / `☰ Tek Sütun`):** `git_ops.py` içinde yatay eşleştirilen eski/yeni satırlar (`split_rows`) ile koyu ve açık tema uyumlu karşılaştırma.
+  - **Çok Dosyalı Değişiklik İnceleme Paneli (`📋 İncele`):** Tüm staged, unstaged ve yeni dosyalar arasında `◀` / `▶` ve dosya etiketleriyle gezinin; her dosya için **Stage (`+`)**, **Unstage**, **Geri Al (`↺`)** ve **✨ AI İncele** çalıştırın.
+  - **Akıllı Terminal Hata Yakalayıcı & Tek Tık Düzeltme Çubuğu:** Canlı Terminal Pro SSE akışındaki Python traceback, `SyntaxError`/`AssertionError`/`FAIL:`/`ERROR:` ve JS hatalarını otomatik yakalar; tıklanabilir `dosya:satır` atlaması, **`🔧 Ajan v3 ile Düzelt`** (otomatik `@dosya` + `Oto-Test` tetikleyici) ve **`↻ Tekrar Koş`** butonları sunar.
 - **Kod Ajanı v3 (`v0.9.0`):**
   - **16 Adımlı Ajan Döngüsü + Tekrar Koruması:** Çok dosyalı refactor ve hata ayıklama için 16 adıma kadar otonom çalışma (Plan modunda 6 adım) ve aynı araç çağrısının sonsuz döngüye girmesini önleyen koruma.
   - **5 Yeni AST, Git & Dosya Aracı (Toplam 11 Araç):** `repo_map` (Python/JS/TS AST sembol haritası), `find_symbols` (proje çapı sembol arama), `git_status`, `git_diff` ve geri alınabilir `delete_file`.

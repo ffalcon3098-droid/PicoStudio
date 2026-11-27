@@ -117,27 +117,87 @@ def get_status(ws: Workspace) -> dict[str, Any]:
 
 def _parse_unified_diff(diff_text: str) -> dict[str, Any]:
     lines: list[dict[str, str]] = []
+    split_rows: list[dict[str, Any]] = []
     added = 0
     removed = 0
+    old_ln = 0
+    new_ln = 0
+    del_buf: list[tuple[int, str]] = []
+    add_buf: list[tuple[int, str]] = []
+
+    def _flush_pair_buffers() -> None:
+        if not del_buf and not add_buf:
+            return
+        n = max(len(del_buf), len(add_buf))
+        for i in range(n):
+            l_ln, l_txt = del_buf[i] if i < len(del_buf) else (None, "")
+            r_ln, r_txt = add_buf[i] if i < len(add_buf) else (None, "")
+            split_rows.append({
+                "kind": "pair",
+                "left_ln": l_ln,
+                "left_text": l_txt,
+                "left_type": "del" if l_ln is not None else "empty",
+                "right_ln": r_ln,
+                "right_text": r_txt,
+                "right_type": "add" if r_ln is not None else "empty",
+            })
+        del_buf.clear()
+        add_buf.clear()
+
+    hunk_re = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
     for ln in diff_text.splitlines()[:800]:
         if ln.startswith("@@"):
+            _flush_pair_buffers()
+            m_h = hunk_re.match(ln)
+            if m_h:
+                old_ln = int(m_h.group(1))
+                new_ln = int(m_h.group(2))
             lines.append({"type": "hunk", "text": ln})
+            split_rows.append({"kind": "hunk", "text": ln})
         elif ln.startswith("+++") or ln.startswith("---") or ln.startswith("diff --git") or ln.startswith("index "):
+            _flush_pair_buffers()
             lines.append({"type": "meta", "text": ln})
+            split_rows.append({"kind": "meta", "text": ln})
         elif ln.startswith("+"):
             added += 1
             lines.append({"type": "add", "text": ln})
+            add_buf.append((new_ln, ln[1:]))
+            new_ln += 1
         elif ln.startswith("-"):
             removed += 1
             lines.append({"type": "del", "text": ln})
+            del_buf.append((old_ln, ln[1:]))
+            old_ln += 1
         else:
+            _flush_pair_buffers()
             lines.append({"type": "ctx", "text": ln})
-    return {"added": added, "removed": removed, "lines": lines, "raw": diff_text[:20000]}
+            txt = ln[1:] if ln.startswith(" ") else ln
+            split_rows.append({
+                "kind": "pair",
+                "left_ln": old_ln if old_ln > 0 else None,
+                "left_text": txt,
+                "left_type": "ctx",
+                "right_ln": new_ln if new_ln > 0 else None,
+                "right_text": txt,
+                "right_type": "ctx",
+            })
+            if old_ln > 0:
+                old_ln += 1
+            if new_ln > 0:
+                new_ln += 1
+    _flush_pair_buffers()
+    return {
+        "added": added,
+        "removed": removed,
+        "lines": lines,
+        "split_rows": split_rows[:800],
+        "raw": diff_text[:20000],
+    }
 
 
 def get_diff(ws: Workspace, rel_path: str = "", staged: bool = False) -> dict[str, Any]:
     if not is_git_repo(ws):
-        return {"error": "Bu klasor bir Git reposu degil.", "added": 0, "removed": 0, "lines": [], "raw": ""}
+        return {"error": "Bu klasor bir Git reposu degil.", "added": 0, "removed": 0, "lines": [], "split_rows": [], "raw": ""}
 
     rel_clean = (rel_path or "").strip()
     if rel_clean:
@@ -167,7 +227,7 @@ def get_diff(ws: Workspace, rel_path: str = "", staged: bool = False) -> dict[st
             except OSError:
                 pass
 
-    return {"path": rel_clean or "(tum degisiklikler)", "staged": staged, "added": 0, "removed": 0, "lines": [], "raw": ""}
+    return {"path": rel_clean or "(tum degisiklikler)", "staged": staged, "added": 0, "removed": 0, "lines": [], "split_rows": [], "raw": ""}
 
 
 def stage_path(ws: Workspace, rel_path: str | None = None) -> tuple[bool, str]:

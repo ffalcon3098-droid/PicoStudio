@@ -168,8 +168,9 @@ class TestPicoStudioSuite(unittest.TestCase):
                     html = r.read().decode("utf-8")
                     self.assertEqual(r.status, 200)
                     self.assertIn("PicoStudio IDE", html)
-                    self.assertIn("v0.9.0", html)
+                    self.assertIn("v0.10.0", html)
                     self.assertIn("agentCtxPill", html)
+                    self.assertIn("termErrBar", html)
                     self.assertIn("/static/style.css", html)
                     self.assertIn("/static/app.js", html)
                     m_tok = re.search(r'name="ps-csrf"\s+content="([^"]+)"', html)
@@ -183,6 +184,9 @@ class TestPicoStudioSuite(unittest.TestCase):
                     self.assertIn("X-PicoStudio-Token", app_js)
                     self.assertIn("approvePlanAndRun", app_js)
                     self.assertIn("undoTurnCheckpoint", app_js)
+                    self.assertIn("openMultiFileReview", app_js)
+                    self.assertIn("renderSplitDiff", app_js)
+                    self.assertIn("autoFixTerminalError", app_js)
 
                 with urllib.request.urlopen(f"{base}/static/style.css", timeout=5) as r:
                     self.assertEqual(r.status, 200)
@@ -739,6 +743,42 @@ class TestPicoStudioSuite(unittest.TestCase):
                 ide_srv.server_close()
                 mock_srv.shutdown()
                 mock_srv.server_close()
+
+    def test_12_v0100_split_diff_rows_and_multifile_review(self) -> None:
+        import subprocess
+        with tempfile.TemporaryDirectory() as td:
+            ws = Workspace(td)
+            subprocess.run(["git", "init"], cwd=td, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "diff@picostudio.local"], cwd=td, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "DiffTester"], cwd=td, check=True, capture_output=True)
+
+            ws.write_file("app.py", "def greet(name):\n    return 'hi ' + name\n")
+            subprocess.run(["git", "add", "."], cwd=td, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "base"], cwd=td, check=True, capture_output=True)
+
+            # Modify tracked file + create untracked file
+            ws.write_file("app.py", "def greet(name: str) -> str:\n    return f'hello {name}'\n")
+            ws.write_file("extra.py", "X = 1\nY = 2\n")
+
+            d = git_ops.get_diff(ws, "app.py", staged=False)
+            self.assertEqual(d["added"], 2)
+            self.assertEqual(d["removed"], 2)
+            self.assertTrue(len(d["split_rows"]) >= 3)
+            pairs = [row for row in d["split_rows"] if row.get("kind") == "pair"]
+            self.assertEqual(pairs[0]["left_ln"], 1)
+            self.assertEqual(pairs[0]["left_type"], "del")
+            self.assertEqual(pairs[0]["right_ln"], 1)
+            self.assertEqual(pairs[0]["right_type"], "add")
+            self.assertIn("def greet(name):", pairs[0]["left_text"])
+            self.assertIn("def greet(name: str) -> str:", pairs[0]["right_text"])
+
+            # Untracked file also yields structured split_rows
+            du = git_ops.get_diff(ws, "extra.py", staged=False)
+            u_pairs = [row for row in du["split_rows"] if row.get("kind") == "pair"]
+            self.assertEqual(len(u_pairs), 2)
+            self.assertEqual(u_pairs[0]["left_type"], "empty")
+            self.assertEqual(u_pairs[0]["right_type"], "add")
+            self.assertEqual(u_pairs[0]["right_ln"], 1)
 
 
 if __name__ == "__main__":

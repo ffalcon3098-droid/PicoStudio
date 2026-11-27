@@ -699,7 +699,7 @@ def run_ide(
     httpd = PicoStudioHTTPServer((h, p), make_handler(arbiter, ws, term_mgr, chat_store=chat_store))
     url = f"http://{h}:{p}/"
     print("============================================================")
-    print(f"  PicoStudio Local IDE v0.9.0 -> {url}")
+    print(f"  PicoStudio Local IDE v0.10.0 -> {url}")
     print(f"  Aktif Proje                 -> {ws.root}")
     print(f"  Kodlama Motoru              -> {arbiter.picocode_dir}")
     print(f"  Video/Gorsel Motoru         -> {arbiter.picovid_dir}")

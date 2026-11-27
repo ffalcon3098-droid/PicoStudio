@@ -362,9 +362,11 @@ const IDE_COMMANDS = [
   {label:'Görünüm: Sol Paneli Gizle/Göster (Ctrl+B)', run:()=>togglePane('leftPane')},
   {label:'Görünüm: Sağ AI Panelini Gizle/Göster (Ctrl+Shift+B)', run:()=>togglePane('rightPane')},
   {label:'Git: Git & Diff Paneline Geç', run:()=>switchLeftTab('git')},
+  {label:'Git: Çok Dosyalı Değişiklik İnceleme Paneli (Side-by-Side)', run:()=>openMultiFileReview()},
   {label:'Git: Tüm Değişikliklerin Diff Önizlemesi', run:()=>openGitDiff('', false)},
   {label:'Terminal: Yeni Sekme Aç', run:()=>createTerminalTab()},
   {label:'Terminal: Proje Testlerini Çalıştır', run:()=>runTerm('py -m unittest discover -s tests -v')},
+  {label:'Terminal: Son Hatayı AI Ajan v3 ile Düzelt', run:()=>autoFixTerminalError()},
   {label:'Terminal: Büyüt / Küçült', run:()=>toggleTermMax()},
   {label:'Ajan: Yeni Sohbet Başlat', run:()=>newChatSession()},
   {label:'Ajan: Planla + Onayla Moduna Geç', run:()=>{document.getElementById('agentMode').value='plan';}},
@@ -736,22 +738,92 @@ async function loadGitStatus(renderList=false){
   }catch(e){}
 }
 
-async function openGitDiff(path, staged){
+let diffViewMode = localStorage.getItem('ps_diff_mode') || 'split';
+let lastDiffArgs = null;
+let reviewFiles = [];
+let reviewIdx = 0;
+
+function toggleDiffViewMode(){
+  diffViewMode = (diffViewMode === 'split') ? 'unified' : 'split';
+  localStorage.setItem('ps_diff_mode', diffViewMode);
+  if(lastDiffArgs) openGitDiff(lastDiffArgs.path, lastDiffArgs.staged, lastDiffArgs.inReview);
+}
+
+function renderSplitDiff(rows){
+  if(!rows || !rows.length) return '<div style="padding:16px;color:var(--mut)">Gösterilecek fark yok.</div>';
+  const trs = rows.map(row=>{
+    if(row.kind === 'hunk') return `<tr><td colspan="4" class="shunk">${escHtml(row.text)}</td></tr>`;
+    if(row.kind === 'meta') return `<tr><td colspan="4" class="smeta">${escHtml(row.text)}</td></tr>`;
+    const lLn = row.left_ln != null ? row.left_ln : '';
+    const rLn = row.right_ln != null ? row.right_ln : '';
+    return `<tr><td class="sln">${lLn}</td><td class="${row.left_type||'ctx'}">${escHtml(row.left_text)||' '}</td><td class="sln sdiv">${rLn}</td><td class="${row.right_type||'ctx'}">${escHtml(row.right_text)||' '}</td></tr>`;
+  }).join('');
+  return `<table class="split-tbl"><tbody>${trs}</tbody></table>`;
+}
+
+async function openMultiFileReview(startPath=''){
+  const st = await fetch('/api/git/status').then(x=>x.json()).catch(()=>null);
+  if(!st || !st.is_repo){ alert('Bu proje henüz bir Git reposu değil.'); return; }
+  const seen = new Set();
+  reviewFiles = [];
+  for(const f of (st.staged||[])){
+    const key = 'S:' + f.path;
+    if(!seen.has(key)){ seen.add(key); reviewFiles.push({path:f.path, code:f.code, staged:true}); }
+  }
+  for(const f of [...(st.unstaged||[]), ...(st.untracked||[])]){
+    const key = 'W:' + f.path;
+    if(!seen.has(key)){ seen.add(key); reviewFiles.push({path:f.path, code:f.code, staged:false}); }
+  }
+  if(!reviewFiles.length){ alert('İncelenecek Git değişikliği bulunamadı (çalışma dizini temiz).'); return; }
+  reviewIdx = startPath ? Math.max(0, reviewFiles.findIndex(x=>x.path===startPath)) : 0;
+  const cur = reviewFiles[reviewIdx];
+  openGitDiff(cur.path, cur.staged, true);
+}
+
+function reviewJump(idx){
+  if(!reviewFiles.length) return;
+  reviewIdx = (idx + reviewFiles.length) % reviewFiles.length;
+  const cur = reviewFiles[reviewIdx];
+  openGitDiff(cur.path, cur.staged, true);
+}
+
+function askAiReviewDiff(path, staged){
+  switchRightTab('code');
+  document.getElementById('agentMode').value = 'plan';
+  const ref = path ? `@${path} dosyasındaki` : 'projedeki';
+  document.getElementById('chatInp').value = `git_diff aracını kullanarak ${ref} ${staged?'staged ':''}değişiklikleri bug, güvenlik ve temiz kod açısından incele; en önemli bulguları listele.`;
+  sendAgent();
+}
+
+async function openGitDiff(path, staged, inReview=false){
+  lastDiffArgs = {path, staged, inReview};
   const r = await fetch(`/api/git/diff?path=${encodeURIComponent(path)}&staged=${staged?1:0}`).then(x=>x.json());
   const dv = document.getElementById('diffViewer');
   document.getElementById('mediaViewer').style.display = 'none';
   codeStage.style.display = 'none'; gutter.style.display = 'none';
   dv.style.display = 'flex';
+  let reviewBarHtml = '';
+  if(inReview && reviewFiles.length){
+    const pills = reviewFiles.map((f, i)=>{
+      const cls = f.code==='??'?'U':(f.code==='D'?'D':(f.staged?'A':'M'));
+      const base = f.path.split('/').pop();
+      return `<div class="rpill${i===reviewIdx?' active':''}" title="${escHtml(f.path)}" onclick="reviewJump(${i})"><span class="gcode ${cls}">${escHtml(f.code)}</span><span>${escHtml(base)}</span>${f.staged?'<span style="font-size:9.5px;color:var(--ok)">S</span>':''}</div>`;
+    }).join('');
+    reviewBarHtml = `<div class="review-strip"><span style="font-size:11px;color:var(--mut);font-weight:700;white-space:nowrap">📋 İnceleme (${reviewIdx+1}/${reviewFiles.length})</span><button class="sm" onclick="reviewJump(${reviewIdx-1})">◀</button><button class="sm" onclick="reviewJump(${reviewIdx+1})">▶</button>${pills}</div>`;
+  }
+  const modeLbl = diffViewMode === 'split' ? '☰ Tek Sütun' : '◫ Yan Yana';
   const actBtn = path
     ? (staged
-      ? `<button class="sm" onclick="gitUnstage(${escJsArg(path)}).then(()=>openGitDiff(${escJsArg(path)},false))">Unstage</button>`
-      : `<button class="sm primary" onclick="gitStage(${escJsArg(path)}).then(()=>openGitDiff(${escJsArg(path)},true))">Stage (+)</button>`)
+      ? `<button class="sm" onclick="gitUnstage(${escJsArg(path)}).then(()=>${inReview?'openMultiFileReview('+escJsArg(path)+')':'openGitDiff('+escJsArg(path)+',false)'})">Unstage</button>`
+      : `<button class="sm primary" onclick="gitStage(${escJsArg(path)}).then(()=>${inReview?'openMultiFileReview('+escJsArg(path)+')':'openGitDiff('+escJsArg(path)+',true)'})">Stage (+)</button><button class="sm danger" onclick="gitRevert(${escJsArg(path)}).then(()=>${inReview?'openMultiFileReview()':'closeCenterOverlays()'})">↺</button>`)
       + `<button class="sm" onclick="openFile(${escJsArg(path)})">Dosyayı Aç</button>`
     : '';
-  const bodyHtml = (r.lines && r.lines.length)
-    ? r.lines.map(ln=>`<div class="dln ${ln.type}">${escHtml(ln.text)||' '}</div>`).join('')
-    : '<div style="padding:16px;color:var(--mut)">Gösterilecek fark yok.</div>';
-  dv.innerHTML = `<div class="diff-hdr"><b>${escHtml(r.path||path)}</b><span class="pill">${staged?'Staged':'Working Tree'}</span><span style="color:var(--ok);font-weight:700">+${r.added||0}</span><span style="color:var(--err);font-weight:700">-${r.removed||0}</span><div style="margin-left:auto;display:flex;gap:5px">${actBtn}<button class="sm" onclick="closeCenterOverlays()">Editöre Dön</button></div></div><div class="diff-body">${bodyHtml}</div>`;
+  const bodyHtml = (diffViewMode === 'split' && r.split_rows && r.split_rows.length)
+    ? renderSplitDiff(r.split_rows)
+    : ((r.lines && r.lines.length)
+      ? r.lines.map(ln=>`<div class="dln ${ln.type}">${escHtml(ln.text)||' '}</div>`).join('')
+      : '<div style="padding:16px;color:var(--mut)">Gösterilecek fark yok.</div>');
+  dv.innerHTML = `${reviewBarHtml}<div class="diff-hdr"><b>${escHtml(r.path||path)}</b><span class="pill">${staged?'Staged':'Working Tree'}</span><span style="color:var(--ok);font-weight:700">+${r.added||0}</span><span style="color:var(--err);font-weight:700">-${r.removed||0}</span><div style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap"><button class="sm" onclick="toggleDiffViewMode()">${modeLbl}</button><button class="sm" onclick="askAiReviewDiff(${escJsArg(path)},${staged?1:0})">✨ AI İncele</button>${actBtn}<button class="sm" onclick="closeCenterOverlays()">Editöre Dön</button></div></div><div class="diff-body">${bodyHtml}</div>`;
 }
 async function gitStage(path){ await fetch('/api/git/stage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})}); await loadGitStatus(true); }
 async function gitStageAll(){ await fetch('/api/git/stage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:''})}); await loadGitStatus(true); }
@@ -1139,6 +1211,9 @@ let termHistIdx = -1;
 let pendingNlCmd = '';
 let termSavedHeight = 255;
 let termMaximized = false;
+let lastTermCommand = '';
+let termRecentLines = [];
+let detectedTermErr = null;
 
 const ANSI_COLORS = {
   30:'#475569',31:'#f87171',32:'#4ade80',33:'#fbbf24',34:'#60a5fa',35:'#c084fc',36:'#38bdf8',37:'#e2e8f0',
@@ -1208,19 +1283,93 @@ function gotoEditorLine(lineNum){
   gutter.scrollTop = editor.scrollTop;
 }
 
+function stripAnsi(s){ return String(s||'').replace(/\x1b\[[0-9;]*m/g, ''); }
+
+function detectTerminalError(recent){
+  const clean = recent.map(stripAnsi);
+  const errRe = /(Traceback \(most recent call last\):|\b(?:SyntaxError|NameError|TypeError|ValueError|AttributeError|ImportError|ModuleNotFoundError|AssertionError|KeyError|IndexError|ZeroDivisionError|RuntimeError|ReferenceError|RangeError):[^\n]*|^FAIL:\s+\S+|^ERROR:\s+\S+|FAILED \(|exit_code=[1-9]\d*|\[exit [1-9]\d*\])/i;
+  let lastHitIdx = -1;
+  let headline = '';
+  for(let i = clean.length - 1; i >= 0; i--){
+    const m = clean[i].match(errRe);
+    if(m){
+      lastHitIdx = i;
+      headline = clean[i].trim().slice(0, 120);
+      break;
+    }
+  }
+  if(lastHitIdx === -1) return null;
+  // Find nearest file:line reference inside the last ~35 lines around the error
+  let errFile = ''; let errLine = 0;
+  const winStart = Math.max(0, lastHitIdx - 25);
+  const win = clean.slice(winStart);
+  for(let i = win.length - 1; i >= 0; i--){
+    const mPy = win[i].match(/File "([^"]+)", line (\d+)/);
+    if(mPy){ errFile = mPy[1].replace(/\\/g, '/'); errLine = parseInt(mPy[2], 10); break; }
+    const mGen = win[i].match(/([A-Za-z0-9_.\-/\\]+\.(?:py|js|ts|tsx|jsx)):(\d+)/);
+    if(mGen){ errFile = mGen[1].replace(/\\/g, '/'); errLine = parseInt(mGen[2], 10); break; }
+  }
+  const snippet = win.slice(-28).join('\n').slice(-1800);
+  return {headline, file: errFile, line: errLine, snippet};
+}
+
+function renderTermErrBanner(){
+  const bar = document.getElementById('termErrBar');
+  if(!bar) return;
+  if(!detectedTermErr){ bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  bar.style.display = 'flex';
+  const locBtn = (detectedTermErr.file && detectedTermErr.line)
+    ? `<button class="sm" onclick="jumpFromTerm(${escJsArg(detectedTermErr.file)},${detectedTermErr.line})">📄 ${escHtml(detectedTermErr.file.split('/').pop())}:${detectedTermErr.line}</button>`
+    : '';
+  const rerunBtn = lastTermCommand
+    ? `<button class="sm" onclick="runTerm(${escJsArg(lastTermCommand)})">↻ Tekrar Koş</button>`
+    : '';
+  bar.innerHTML = `<span style="font-weight:700">⚠ Hata Yakalandı</span><span class="err-msg" title="${escHtml(detectedTermErr.headline)}">${escHtml(detectedTermErr.headline)}</span>${locBtn}<button class="sm primary" onclick="autoFixTerminalError()">🔧 Ajan v3 ile Düzelt</button>${rerunBtn}<button class="sm" onclick="dismissTermErr()">×</button>`;
+}
+
+function dismissTermErr(){
+  detectedTermErr = null;
+  renderTermErrBanner();
+}
+
+function autoFixTerminalError(){
+  const err = detectedTermErr;
+  const txt = err ? err.snippet : document.getElementById('termOut').innerText.slice(-1800);
+  if(!txt.trim()){ alert('Terminalde analiz edilecek çıktı bulunamadı.'); return; }
+  let atRef = '';
+  if(err && err.file){
+    let rel = err.file;
+    const projRoot = (document.getElementById('projSel')?.value || '').replace(/\\/g, '/').replace(/\/$/, '');
+    if(projRoot && rel.toLowerCase().startsWith(projRoot.toLowerCase() + '/')) rel = rel.slice(projRoot.length + 1);
+    if(!/^[A-Za-z]:\//.test(rel)) atRef = `@${rel} `;
+  }
+  switchRightTab('code');
+  document.getElementById('agentMode').value = 'agent';
+  const chk = document.getElementById('chkAutoVerify');
+  if(chk) chk.checked = true;
+  document.getElementById('chatInp').value = `${atRef}Terminaldeki şu hatayı tespit edip doğrudan düzelt ve testle doğrula:\n\n\`\`\`\n${txt}\n\`\`\``;
+  sendAgent();
+}
+
 function appendTermLines(lines, reset=false){
   const el = document.getElementById('termOut');
   const atBottom = reset || (el.scrollHeight - el.scrollTop - el.clientHeight < 40);
-  if(reset) el.innerHTML = '';
+  if(reset){ el.innerHTML = ''; termRecentLines = []; dismissTermErr(); }
   const frag = document.createDocumentFragment();
   for(const ln of (lines||[])){
+    termRecentLines.push(ln);
     const div = document.createElement('div');
     div.innerHTML = renderAnsiLine(ln) || '&nbsp;';
     frag.appendChild(div);
   }
+  if(termRecentLines.length > 80) termRecentLines = termRecentLines.slice(-80);
   el.appendChild(frag);
   while(el.childNodes.length > 450) el.removeChild(el.firstChild);
   if(atBottom) el.scrollTop = el.scrollHeight;
+  if(!reset && lines && lines.length){
+    const found = detectTerminalError(termRecentLines);
+    if(found){ detectedTermErr = found; renderTermErrBanner(); }
+  }
 }
 
 function setTermRunningState(running){
@@ -1309,6 +1458,8 @@ async function pollTerminal(){
 async function runTerm(cmd){
   if(!cmd || !cmd.trim()) return;
   const clean = cmd.trim();
+  lastTermCommand = clean;
+  dismissTermErr();
   if(!termHistory.length || termHistory[termHistory.length-1] !== clean) termHistory.push(clean);
   termHistIdx = termHistory.length;
   document.getElementById('compBar').style.display = 'none';
@@ -1400,8 +1551,10 @@ async function stopTerm(){ await fetch('/api/terminal/stop',{method:'POST',heade
 async function clearTerm(){
   await fetch('/api/terminal/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:activeTermId})});
   document.getElementById('termOut').innerHTML = '';
+  termRecentLines = []; dismissTermErr();
 }
 function sendTermErrorToAi(){
+  if(detectedTermErr){ autoFixTerminalError(); return; }
   const txt = document.getElementById('termOut').innerText.slice(-1800);
   switchRightTab('code');
   document.getElementById('chatInp').value = "Terminaldeki şu hatayı analiz et ve düzeltilmiş kodu ver:\n\n```\n" + txt + "\n```";

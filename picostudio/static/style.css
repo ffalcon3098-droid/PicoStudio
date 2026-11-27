@@ -118,6 +118,26 @@
   .dln.hunk{background:rgba(56,189,248,.12);color:#7dd3fc;font-weight:600;margin-top:4px}
   .dln.meta{color:#64748b}
   .dln.ctx{color:#cbd5e1}
+  .review-strip{display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--p1);border-bottom:1px solid var(--b);overflow-x:auto;flex-shrink:0}
+  .rpill{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:6px;font-size:11.5px;color:var(--mut);background:var(--p2);border:1px solid var(--b);cursor:pointer;white-space:nowrap}
+  .rpill:hover{border-color:var(--acc);color:var(--txt)}
+  .rpill.active{border-color:var(--acc);background:rgba(56,189,248,.16);color:var(--txt);font-weight:600}
+  .split-tbl{width:100%;border-collapse:collapse;table-layout:fixed;font-family:"Cascadia Code",Consolas,monospace;font-size:11.8px;line-height:1.46}
+  .split-tbl td{padding:0 7px;vertical-align:top;white-space:pre-wrap;word-break:break-word;border-bottom:1px solid rgba(38,50,77,.25)}
+  .split-tbl td.sln{width:42px;text-align:right;color:#64748b;user-select:none;background:rgba(15,23,42,.55);border-right:1px solid #1b2740;padding:0 6px}
+  .split-tbl td.sdiv{border-left:2px solid var(--b)}
+  .split-tbl td.del{background:rgba(239,68,68,.16);color:#fca5a5}
+  .split-tbl td.add{background:rgba(34,197,94,.15);color:#86efac}
+  .split-tbl td.empty{background:rgba(15,23,42,.35)}
+  .split-tbl td.ctx{color:#cbd5e1}
+  .split-tbl td.shunk{background:rgba(56,189,248,.12);color:#7dd3fc;font-weight:600;padding:2px 10px}
+  .split-tbl td.smeta{background:rgba(15,23,42,.7);color:#64748b;padding:2px 10px}
+  body.theme-light .split-tbl td.ctx{color:#1e293b}
+  body.theme-light .split-tbl td.del{background:#fee2e2;color:#991b1b}
+  body.theme-light .split-tbl td.add{background:#dcfce7;color:#166534}
+  body.theme-light .split-tbl td.sln{background:#f1f5f9;color:#64748b}
+  .term-err-bar{display:none;align-items:center;gap:7px;padding:5px 10px;background:rgba(239,68,68,.16);border-top:1px solid rgba(239,68,68,.48);font-size:11.8px;color:#fca5a5;flex-wrap:wrap}
+  .term-err-bar .err-msg{flex:1;min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:Consolas,monospace;font-size:11.5px}
   #mediaViewer{display:none;flex:1;align-items:center;justify-content:center;flex-direction:column;gap:10px;padding:16px;background:#05080f}
   #mediaViewer video,#mediaViewer img{max-width:100%;max-height:78%;border-radius:8px;border:1px solid var(--b)}
 

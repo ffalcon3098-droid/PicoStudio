@@ -11,7 +11,7 @@
 <header>
   <div class="brand">
     <span>PicoStudio IDE</span>
-    <span class="pill">v0.9.0</span>
+    <span class="pill">v0.10.0</span>
     <span id="gpuOwnerPill" class="pill">GPU: Boşta</span>
   </div>
   <div class="row">
@@ -73,6 +73,7 @@
         <div class="row" style="gap:5px">
           <button class="sm primary" style="flex:1" onclick="gitCommit()">Commit</button>
           <button id="gitAiBtn" class="sm" onclick="gitAiMessage()" title="Yerel AI ile diff'ten commit mesajı üret">✨ AI</button>
+          <button class="sm" onclick="openMultiFileReview()" title="Tüm değişen dosyaları yan yana (Side-by-Side) incele">📋 İncele</button>
           <button class="sm" onclick="openGitDiff('',false)" title="Tüm çalışma diff'ini gör">Diff</button>
         </div>
       </div>
@@ -176,6 +177,7 @@
           <button class="sm" onclick="acceptNlCmd(false)">Düzenle</button>
           <button class="sm danger" onclick="hideNlBar()">İptal</button>
         </div>
+        <div id="termErrBar" class="term-err-bar"></div>
         <div class="term-inp">
           <span id="termPromptTag" class="prompt-tag">PS&gt;</span>
           <input id="termInp" autocomplete="off" placeholder="Komut yazın (↑↓ geçmiş · Tab tamamla · ? ile Türkçe AI komut)..." onkeydown="onTermKey(event)" />
