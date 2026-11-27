@@ -1,14 +1,17 @@
 """
-PicoStudio Local Coding Agent v2 (Tool-Calling + Plan/Approval + Auto-Test Self-Heal).
+PicoStudio Local Coding Agent v3 (16-Step Loop · AST Repo Map · Git Tools · Instant Syntax Feedback · Context Compaction · Batch Turn Undo).
 
-Gives local coding models (Qwen2.5-Coder-7B, Inkling 2 Mini) real IDE superpowers:
+Gives local coding models (Qwen3-Coder-30B-A3B, Inkling 2 Mini, Qwen2.5-Coder) real IDE superpowers:
   - Fast Mode: instant project-snapshot response without tool overhead
   - Plan + Approval Mode: read-only codebase inspection -> structured multi-file plan card -> user approval
-  - Agent Mode + Auto-Verify Self-Heal:
-      * list_files, read_file, search_code, edit_file, write_file, run_terminal
-      * Automatically detects and runs workspace tests after edits
-      * Feeds test failures back into the agent for automatic self-healing fix rounds
-  - Streams structured SSE events (status, tool, tool_result, file_changed, plan_ready, verify, delta, done, error).
+  - Agent v3 Mode + Auto-Verify Self-Heal:
+      * Read tools: list_files, read_file, search_code, repo_map (AST outline), find_symbols, git_status, git_diff
+      * Write/Exec tools: edit_file, write_file (both with instant syntax diagnostics), delete_file (undo-recorded), run_terminal
+      * Smart context compaction keeps 16-step multi-file runs fast inside 32K context
+      * Consecutive duplicate tool-call loop guard prevents wasted steps
+      * Automatically detects and runs workspace tests after edits, feeding failures back for self-healing
+      * Emits turn_checkpoint with all turn undo_ids for 1-click full-turn rollback
+  - Streams structured SSE events (status, metrics, tool, tool_result, file_changed, plan_ready, verify, turn_checkpoint, delta, done, error).
 
 Licensed under the Apache License, Version 2.0.
 """
@@ -17,12 +20,14 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import re
 import subprocess
 import threading
 import urllib.request
 from typing import Any, Iterator
 
+from picostudio import diagnostics, git_ops, symbols
 from picostudio.arbiter import GPUArbiter
 from picostudio.workspace import Workspace
 
@@ -62,8 +67,59 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "repo_map",
+            "description": "Get a compact AST/symbol map (classes, functions, methods, line numbers) of workspace code files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subdir": {"type": "string", "description": "Optional relative subdirectory filter."},
+                    "max_files": {"type": "integer", "description": "Maximum files to include (default 25)."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_symbols",
+            "description": "Find class, function, method, or interface definitions across the workspace by name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Symbol name or substring to match."},
+                    "exact": {"type": "boolean", "description": "If true, match exact symbol name."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_status",
+            "description": "Inspect current git branch and staged/unstaged/untracked changes.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_diff",
+            "description": "View unified git diff for a specific file or the whole workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Optional relative file path (empty for all)."},
+                    "staged": {"type": "boolean", "description": "If true, show staged diff."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "edit_file",
-            "description": "Replace exact target text block inside an existing file with replacement text.",
+            "description": "Replace exact target text block inside an existing file with replacement text. Runs instant syntax check.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -79,7 +135,7 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "Create or overwrite a file with full content.",
+            "description": "Create or overwrite a file with full content. Runs instant syntax check.",
             "parameters": {
                 "type": "object",
                 "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
@@ -90,16 +146,32 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "delete_file",
+            "description": "Safely delete a file inside the workspace (recorded for undo).",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_terminal",
-            "description": "Run PowerShell command in project root.",
+            "description": "Run PowerShell command in project root (with PYTHONPATH set).",
             "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]},
         },
     },
 ]
 
-READONLY_TOOL_NAMES = {"list_files", "read_file", "search_code"}
+READONLY_TOOL_NAMES = {
+    "list_files", "read_file", "search_code",
+    "repo_map", "find_symbols", "git_status", "git_diff",
+}
 READONLY_AGENT_TOOLS = [t for t in AGENT_TOOLS if t["function"]["name"] in READONLY_TOOL_NAMES]
 KNOWN_TOOL_NAMES = {t["function"]["name"] for t in AGENT_TOOLS}
+_CODE_MAP_EXTS = {".py", ".js", ".jsx", ".ts", ".tsx"}
 
 
 def detect_test_command(ws: Workspace) -> str | None:
@@ -121,16 +193,21 @@ def detect_test_command(ws: Workspace) -> str | None:
     return None
 
 
+def _build_ws_env(ws: Workspace) -> dict[str, str]:
+    env = os.environ.copy()
+    existing_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(ws.root) + (os.pathsep + existing_pp if existing_pp else "")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # Avoid same-second/same-size stale .pyc during self-heal loops
+    return env
+
+
 def run_workspace_tests(ws: Workspace, custom_cmd: str | None = None, timeout: int = 45) -> dict[str, Any]:
     """Execute workspace tests and return structured pass/fail diagnostics."""
     cmd = (custom_cmd or "").strip() or detect_test_command(ws)
     if not cmd:
         return {"ran": False, "passed": True, "command": "", "exit_code": 0, "output": "Projede otomatik test komutu bulunamadi."}
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    env = os.environ.copy()
-    existing_pp = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(ws.root) + (os.pathsep + existing_pp if existing_pp else "")
-    env["PYTHONDONTWRITEBYTECODE"] = "1"  # Avoid same-second/same-size stale .pyc during self-heal loops
+    env = _build_ws_env(ws)
     try:
         res = subprocess.run(
             ["powershell", "-NoProfile", "-Command", cmd],
@@ -157,9 +234,120 @@ def run_workspace_tests(ws: Workspace, custom_cmd: str | None = None, timeout: i
         return {"ran": True, "passed": False, "command": cmd, "exit_code": 1, "output": str(exc)}
 
 
+def build_repo_map(ws: Workspace, subdir: str = "", max_files: int = 25) -> str:
+    """Build a compact AST/symbol outline across workspace code files for fast codebase orientation."""
+    sub_clean = (subdir or "").strip().replace("\\", "/").strip("/")
+    if sub_clean:
+        ws.safe_path(sub_clean)  # Enforce path safety
+    limit = max(1, min(60, int(max_files or 25)))
+    blocks: list[str] = []
+    file_count = 0
+    total_chars = 0
+    for item in ws.list_tree(max_depth=4, max_items=400):
+        if item["kind"] != "file" or item["size"] > 200_000:
+            continue
+        rel = item["path"]
+        if sub_clean and not (rel == sub_clean or rel.startswith(sub_clean + "/")):
+            continue
+        if pathlib.Path(rel).suffix.lower() not in _CODE_MAP_EXTS:
+            continue
+        try:
+            content = (ws.root / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        n_lines = content.count("\n") + (1 if content else 0)
+        syms = symbols.extract_file_symbols(rel, content)
+        lines = [f"{rel} ({n_lines}L):"]
+        if syms:
+            for s in syms[:35]:
+                indent = "    " if "." in s["name"] else "  "
+                lines.append(f"{indent}L{s['line']} {s['kind']} {s['name']}")
+            if len(syms) > 35:
+                lines.append(f"  ... (+{len(syms) - 35} more symbols)")
+        else:
+            lines.append("  (no top-level symbols)")
+        blk = "\n".join(lines)
+        if total_chars + len(blk) > 7800:
+            blocks.append("... (repo_map truncated for context budget)")
+            break
+        blocks.append(blk)
+        total_chars += len(blk) + 1
+        file_count += 1
+        if file_count >= limit:
+            break
+    if not blocks:
+        return f"No supported source files ({', '.join(sorted(_CODE_MAP_EXTS))}) found" + (f" under '{sub_clean}'." if sub_clean else ".")
+    return f"Repo Map ({file_count} files):\n" + "\n".join(blocks)
+
+
+def _format_syntax_feedback(rel_path: str, content: str) -> tuple[str, list[dict[str, Any]]]:
+    diags = diagnostics.check_syntax(rel_path, content)
+    if not diags:
+        return "", []
+    parts = [f"Line {d.get('line', 1)}: {d.get('message', 'Syntax error')}" for d in diags[:5]]
+    msg = "\n[SYNTAX ERROR] " + "; ".join(parts) + "\nFix this syntax error immediately before finishing."
+    return msg, diags
+
+
+def estimate_context_tokens(conv: list[dict[str, Any]]) -> int:
+    """Fast local token estimate (~4 chars/token) for telemetry and compaction decisions."""
+    chars = 0
+    for m in conv:
+        c = m.get("content")
+        if isinstance(c, str):
+            chars += len(c)
+        elif isinstance(c, list):
+            for part in c:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    chars += len(str(part.get("text") or ""))
+                else:
+                    chars += 256  # approximate image token cost
+        tcs = m.get("tool_calls")
+        if tcs:
+            chars += len(json.dumps(tcs, ensure_ascii=False))
+    return max(1, chars // 4)
+
+
+def compact_conversation(
+    conv: list[dict[str, Any]],
+    *,
+    keep_recent_tool_msgs: int = 6,
+    max_total_chars: int = 44000,
+) -> tuple[list[dict[str, Any]], bool]:
+    """
+    Shrink old bulky `role=='tool'` outputs when a multi-step agent turn grows large,
+    preserving system prompt, user messages, diffs, and the most recent tool outputs verbatim.
+    """
+    tool_indices = [i for i, m in enumerate(conv) if m.get("role") == "tool"]
+    total_chars = sum(
+        len(m["content"]) if isinstance(m.get("content"), str) else 256
+        for m in conv
+    )
+    if len(tool_indices) <= keep_recent_tool_msgs and total_chars <= max_total_chars:
+        return conv, False
+
+    cutoff_idx = tool_indices[-keep_recent_tool_msgs] if len(tool_indices) > keep_recent_tool_msgs else len(conv)
+    compacted: list[dict[str, Any]] = []
+    did_compact = False
+    for i, m in enumerate(conv):
+        if i < cutoff_idx and m.get("role") == "tool" and isinstance(m.get("content"), str):
+            txt = m["content"]
+            if len(txt) > 520 and not txt.startswith("[Compacted"):
+                lines = txt.splitlines()
+                head = "\n".join(lines[:3])[:220]
+                tail = "\n".join(lines[-2:])[:140] if len(lines) > 5 else ""
+                summary = f"[Compacted older tool output: {len(txt)} chars, {len(lines)} lines]\n{head}"
+                if tail:
+                    summary += f"\n...\n{tail}"
+                compacted.append({**m, "content": summary})
+                did_compact = True
+                continue
+        compacted.append(m)
+    return compacted, did_compact
+
+
 def _extract_fallback_tool_calls(text: str, step: int, allowed: set[str] | None = None) -> list[dict[str, Any]]:
     """Parse JSON tool calls emitted in content by models without native OpenAI tool_calls (e.g. Qwen2.5)."""
-    import re
     valid_names = allowed if allowed is not None else KNOWN_TOOL_NAMES
     found: list[dict[str, Any]] = []
     candidates = re.findall(r"```(?:json)?\s*\n(\{[\s\S]*?\})\s*```", text)
@@ -229,6 +417,51 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
                 return f"No matches for {q!r}.", None
             return "\n".join(f"{h['path']}:{h['line']}: {h['text']}" for h in hits), None
 
+        if name == "repo_map":
+            subdir = str(args.get("subdir") or "").strip()
+            max_files = int(args.get("max_files") or 25)
+            return build_repo_map(ws, subdir=subdir, max_files=max_files), None
+
+        if name == "find_symbols":
+            q = str(args.get("query") or "").strip()
+            exact = bool(args.get("exact", False))
+            hits = symbols.search_workspace_symbols(ws, q, exact=exact, limit=40)
+            if not hits:
+                return f"No symbols matching {q!r}.", None
+            return "\n".join(f"{h['path']}:{h['line']} [{h['kind']}] {h['name']}" for h in hits), None
+
+        if name == "git_status":
+            st = git_ops.get_status(ws)
+            if not st.get("is_repo"):
+                return "Workspace is not a Git repository.", None
+            ab = ""
+            if st.get("ahead"):
+                ab += f" ahead={st['ahead']}"
+            if st.get("behind"):
+                ab += f" behind={st['behind']}"
+            lines = [f"Branch: {st.get('branch', '?')}{ab} (total changes: {st.get('total_changes', 0)})"]
+            if st.get("staged"):
+                lines.append("Staged: " + ", ".join(f"{f['code']} {f['path']}" for f in st["staged"][:30]))
+            if st.get("unstaged"):
+                lines.append("Unstaged: " + ", ".join(f"{f['code']} {f['path']}" for f in st["unstaged"][:30]))
+            if st.get("untracked"):
+                lines.append("Untracked: " + ", ".join(f["path"] for f in st["untracked"][:30]))
+            if st.get("total_changes", 0) == 0:
+                lines.append("Working tree clean.")
+            return "\n".join(lines), None
+
+        if name == "git_diff":
+            rel = str(args.get("path") or "").strip()
+            staged = bool(args.get("staged", False))
+            if rel:
+                ws.safe_path(rel)
+            d = git_ops.get_diff(ws, rel, staged=staged)
+            raw = (d.get("raw") or "").strip()
+            if not raw:
+                return f"No {'staged ' if staged else ''}diff for {rel or 'workspace'}.", None
+            hdr = f"Diff {d.get('path', rel or 'workspace')} (+{d.get('added', 0)}/-{d.get('removed', 0)}):\n"
+            return hdr + raw[:7000], None
+
         if name == "edit_file":
             rel = str(args.get("path") or "")
             target = str(args.get("target") or "")
@@ -244,13 +477,24 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
                 ), None
             new_content = data["content"].replace(target, replacement, 1)
             res = ws.write_file_with_diff(rel, new_content)
-            return f"OK: Edited {res['path']} (+{res['added']}/-{res['removed']}).", res
+            syn_msg, diags = _format_syntax_feedback(res["path"], new_content)
+            if diags:
+                res["diagnostics"] = diags
+            return f"OK: Edited {res['path']} (+{res['added']}/-{res['removed']}).{syn_msg}", res
 
         if name == "write_file":
             rel = str(args.get("path") or "")
             content = str(args.get("content") or "")
             res = ws.write_file_with_diff(rel, content)
-            return f"OK: Wrote {res['path']} (+{res['added']}/-{res['removed']}, {res['size']} bytes).", res
+            syn_msg, diags = _format_syntax_feedback(res["path"], content)
+            if diags:
+                res["diagnostics"] = diags
+            return f"OK: Wrote {res['path']} (+{res['added']}/-{res['removed']}, {res['size']} bytes).{syn_msg}", res
+
+        if name == "delete_file":
+            rel = str(args.get("path") or "")
+            res = ws.delete_file_with_undo(rel)
+            return f"OK: Deleted {res['path']} (-{res['removed']} lines, undo_id={res['undo_id']}).", res
 
         if name == "run_terminal":
             cmd = str(args.get("command") or "").strip()
@@ -263,11 +507,12 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
             res = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", cmd],
                 cwd=str(ws.root),
+                env=_build_ws_env(ws),
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=30,
+                timeout=45,
                 creationflags=flags,
             )
             out = ((res.stdout or "") + ("\n" + res.stderr if res.stderr else "")).strip()
@@ -294,7 +539,6 @@ def load_project_rules(ws: Workspace, max_chars: int = 1200) -> str:
 
 def extract_at_file_context(ws: Workspace, user_messages: list[dict[str, Any]], max_files: int = 3) -> str:
     """Resolve @path/to/file references in the latest user prompt and return safe file snippets."""
-    import re
     if not user_messages:
         return ""
     last = user_messages[-1].get("content")
@@ -329,7 +573,7 @@ def run_agent_stream(
     *,
     active_file: dict[str, str] | None = None,
     mode: str = "agent",
-    max_steps: int = 6,
+    max_steps: int = 16,
     auto_verify: bool = False,
     test_cmd: str | None = None,
     max_heal_rounds: int = 2,
@@ -338,11 +582,13 @@ def run_agent_stream(
     """
     Generator yielding structured IDE events:
       {"type": "status", "text": "..."}
+      {"type": "metrics", "step": int, "max_steps": int, "est_ctx_tokens": int, "ctx_limit": int, "compacted": bool}
       {"type": "tool", "name": "...", "args": {...}}
       {"type": "tool_result", "name": "...", "summary": "..."}
-      {"type": "file_changed", "path": "...", "added": N, "removed": M, "undo_id": "...", "diff": "..."}
+      {"type": "file_changed", "path": "...", "added": N, "removed": M, "undo_id": "...", "diff": "...", "deleted": bool}
       {"type": "plan_ready", "plan": "..."}
       {"type": "verify", "passed": bool, "command": "...", "exit_code": int, "output": "...", "round": int}
+      {"type": "turn_checkpoint", "undo_ids": [...], "files": [...], "count": int}
       {"type": "delta", "content": "..."}
       {"type": "done", "full_text": "..."}
       {"type": "error", "error": "..."}
@@ -364,6 +610,7 @@ def run_agent_stream(
             f"{snapshot}{project_rules}{active_block}{at_context}"
         )
         conv_fast: list[dict[str, Any]] = [{"role": "system", "content": fast_sys}] + list(user_messages)
+        yield {"type": "metrics", "step": 1, "max_steps": 1, "est_ctx_tokens": estimate_context_tokens(conv_fast), "ctx_limit": 32768, "compacted": False}
         yield {"type": "status", "text": "Proje bağlamıyla yanıt üretiliyor..."}
         use_prefill = "inkling" in (arbiter.coding_model or "").lower()
         prefill = "### " if use_prefill else ""
@@ -401,45 +648,72 @@ def run_agent_stream(
         yield {"type": "done", "full_text": "".join(full)}
         return
 
-    # 2) Plan Mode (read-only inspection -> approval card) vs Full Agent Mode (with optional Auto-Verify Self-Heal)
+    # 2) Plan Mode (read-only inspection -> approval card) vs Full Agent v3 Mode (with optional Auto-Verify Self-Heal)
     is_plan_mode = (mode == "plan")
     tools_spec = READONLY_AGENT_TOOLS if is_plan_mode else AGENT_TOOLS
     allowed_names = READONLY_TOOL_NAMES if is_plan_mode else KNOWN_TOOL_NAMES
-    effective_steps = min(max_steps, 4) if is_plan_mode else max_steps
+    effective_steps = min(max_steps, 6) if is_plan_mode else max_steps
 
     root_items = [x["name"] + ("/" if x["kind"] == "dir" else "") for x in ws.list_tree(max_depth=1, max_items=40)]
     active_hint = f" Open file: `{active_file['path']}`." if (active_file and active_file.get("path")) else ""
     if is_plan_mode:
         sys_prompt = (
-            f"You are PicoStudio Planning Agent. Workspace: `{ws.root.name}` "
+            f"You are PicoStudio Planning Agent v3. Workspace: `{ws.root.name}` "
             f"(root entries: {', '.join(root_items[:25])}).{active_hint} "
             "You are in READ-ONLY PLAN MODE. Do NOT modify files. "
-            "Use `list_files`, `read_file`, or `search_code` if needed, then produce a clear, numbered multi-file "
-            "implementation plan (1. Hedef Dosyalar, 2. Yapılacak Değişiklikler, 3. Test/Doğrulama) in the user's language."
+            "Use `repo_map`, `find_symbols`, `list_files`, `read_file`, `search_code`, `git_status`, or `git_diff` to inspect efficiently, "
+            "then produce a clear, numbered multi-file implementation plan (1. Hedef Dosyalar, 2. Yapılacak Değişiklikler, 3. Test/Doğrulama) in the user's language."
             f"{project_rules}{at_context}"
         )
     else:
         sys_prompt = (
-            f"You are PicoStudio local coding agent. Workspace: `{ws.root.name}` "
+            f"You are PicoStudio Coding Agent v3. Workspace: `{ws.root.name}` "
             f"(root entries: {', '.join(root_items[:25])}).{active_hint} "
-            "Use tools (`read_file`, `list_files`, `search_code`, `edit_file`, `write_file`, `run_terminal`) directly when needed. "
-            "Prefer `edit_file` for targeted changes. Be brief; reply in the user's language."
+            "Use `repo_map` or `find_symbols` first to locate code quickly, `git_status`/`git_diff` to inspect changes, "
+            "and `edit_file` (preferred for targeted edits), `write_file`, `delete_file`, or `run_terminal` to implement and verify. "
+            "If an edit reports `[SYNTAX ERROR]`, fix it immediately. Be brief; reply in the user's language."
             f"{project_rules}{at_context}"
         )
 
     conv: list[dict[str, Any]] = [{"role": "system", "content": sys_prompt}] + list(user_messages)
     final_chunks: list[str] = []
     modified_files: list[str] = []
+    turn_undo_ids: list[str] = []
+    turn_touched_files: list[str] = []
+    recent_call_sigs: list[str] = []
     heal_round = 0
     step = 0
+
+    def _emit_checkpoint() -> dict[str, Any] | None:
+        if not turn_undo_ids:
+            return None
+        return {
+            "type": "turn_checkpoint",
+            "undo_ids": list(turn_undo_ids),
+            "files": sorted(set(turn_touched_files)),
+            "count": len(turn_undo_ids),
+        }
 
     while step < effective_steps:
         if cancel_event is not None and cancel_event.is_set():
             yield {"type": "status", "text": "İptal edildi."}
+            cp = _emit_checkpoint()
+            if cp:
+                yield cp
             yield {"type": "done", "full_text": "".join(final_chunks)}
             return
         step += 1
-        phase_lbl = "Plan hazırlanıyor" if is_plan_mode else "Ajan düşünüyor"
+        conv, did_compact = compact_conversation(conv)
+        est_toks = estimate_context_tokens(conv)
+        yield {
+            "type": "metrics",
+            "step": step,
+            "max_steps": effective_steps,
+            "est_ctx_tokens": est_toks,
+            "ctx_limit": 32768,
+            "compacted": did_compact,
+        }
+        phase_lbl = "Plan hazırlanıyor" if is_plan_mode else "Ajan v3 düşünüyor"
         yield {"type": "status", "text": f"{phase_lbl} (adım {step}/{effective_steps})..."}
         payload = {
             "model": arbiter.coding_model,
@@ -459,6 +733,9 @@ def run_agent_stream(
             for raw in resp:
                 if cancel_event is not None and cancel_event.is_set():
                     yield {"type": "status", "text": "İptal edildi."}
+                    cp = _emit_checkpoint()
+                    if cp:
+                        yield cp
                     yield {"type": "done", "full_text": "".join(final_chunks)}
                     return
                 ln = raw.decode("utf-8", errors="replace").strip()
@@ -529,10 +806,13 @@ def run_agent_stream(
                                 ),
                             })
                             modified_files.clear()
-                            effective_steps = max(effective_steps, step + 3)
+                            effective_steps = max(effective_steps, step + 4)
                             yield {"type": "status", "text": f"Test başarısız — ajan otomatik düzeltiyor (tur {heal_round}/{max_heal_rounds})..."}
                             continue
 
+                cp = _emit_checkpoint()
+                if cp:
+                    yield cp
                 yield {"type": "done", "full_text": "".join(final_chunks)}
                 return
             tool_calls = fb_calls
@@ -554,17 +834,39 @@ def run_agent_stream(
             except Exception as exc:
                 parsed_args = {}
                 parse_err = str(exc)
+
+            sig = f"{fn_name}:{json.dumps(parsed_args, sort_keys=True, ensure_ascii=False)}"
+            is_dup_loop = (
+                not parse_err
+                and len(recent_call_sigs) >= 2
+                and recent_call_sigs[-1] == sig
+                and recent_call_sigs[-2] == sig
+            )
+            recent_call_sigs.append(sig)
+            if len(recent_call_sigs) > 6:
+                recent_call_sigs.pop(0)
+
             if parse_err:
                 result_text = f"ERROR: Tool '{fn_name}' JSON arguments were invalid or truncated ({parse_err}). Retry with valid JSON or write one file at a time."
                 change_info = None
             elif is_plan_mode and fn_name not in READONLY_TOOL_NAMES:
                 result_text = f"ERROR: Plan modunda '{fn_name}' engellendi. Sadece okuma araclarini kullanin."
                 change_info = None
+            elif is_dup_loop:
+                result_text = (
+                    f"ERROR: Repeated identical call to '{fn_name}' detected 3 times in a row. "
+                    "Do not repeat the same call; use the information already gathered, try another tool, or finish."
+                )
+                change_info = None
             else:
                 yield {"type": "tool", "name": fn_name, "args": parsed_args}
                 result_text, change_info = execute_tool(ws, fn_name, parsed_args)
+
             if change_info:
                 modified_files.append(change_info["path"])
+                turn_touched_files.append(change_info["path"])
+                if change_info.get("undo_id"):
+                    turn_undo_ids.append(change_info["undo_id"])
                 yield {
                     "type": "file_changed",
                     "path": change_info["path"],
@@ -572,8 +874,11 @@ def run_agent_stream(
                     "removed": change_info["removed"],
                     "undo_id": change_info["undo_id"],
                     "diff": change_info["diff"],
+                    "deleted": bool(change_info.get("deleted", False)),
                 }
             first_ln = result_text.splitlines()[0][:120] if result_text else "OK"
+            if "[SYNTAX ERROR]" in result_text:
+                first_ln = first_ln[:70] + " ⚠ SYNTAX ERROR"
             yield {"type": "tool_result", "name": fn_name, "summary": first_ln}
             conv.append({
                 "role": "tool",
@@ -584,4 +889,8 @@ def run_agent_stream(
     if is_plan_mode:
         plan_txt = "".join(final_chunks).strip()
         yield {"type": "plan_ready", "plan": plan_txt}
+    else:
+        cp = _emit_checkpoint()
+        if cp:
+            yield cp
     yield {"type": "done", "full_text": "".join(final_chunks)}

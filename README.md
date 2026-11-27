@@ -1,13 +1,19 @@
-# PicoStudio v0.8.0 — Local IDE Pro, Qwen3-Coder-30B, LTX-2.3 Audio+Video & Timeline Studio
+# PicoStudio v0.9.0 — Local IDE Pro, Coding Agent v3, Qwen3-Coder-30B & LTX-2.3 Audio+Video Studio
 
 > [Türkçe dokümantasyon için README.tr.md](README.tr.md)
 
-**PicoStudio** unifies your local **Coding Agents (`PicoCode` · Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** and **Video/Image Studio (`PicoVid` · LTX-2.3 22B Distilled 1.1 Audio+Video + Z-Image-Turbo)** into a single zero-dependency **3-pane Dark/Light Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Visual Diff**, **Multi-Clip Timeline Editor (`xfade` + stereo `acrossfade`)**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **6 GB VRAM GPU Arbiter**.
+**PicoStudio** unifies your local **Coding Agent v3 (`PicoCode v0.2.0` · Qwen3-Coder-30B-A3B MoE up to 30 tok/s + Inkling 2 Mini Vision)** and **Video/Image Studio (`PicoVid` · LTX-2.3 22B Distilled 1.1 Audio+Video + Z-Image-Turbo)** into a single zero-dependency **3-pane Dark/Light Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Visual Diff**, **Multi-Clip Timeline Editor (`xfade` + stereo `acrossfade`)**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **6 GB VRAM GPU Arbiter**.
 
 ---
 
 ## Highlights
 
+- **Coding Agent v3 (`v0.9.0`):**
+  - **16-Step Agent Loop + Duplicate Loop Guard:** Multi-file refactors and debugging up to 16 steps (6 steps in read-only Plan Mode) with automatic detection of repeated identical tool calls.
+  - **5 New AST, Git & File Tools (11 Total):** `repo_map` (compact AST/symbol outline across Python/JS/TS), `find_symbols` (workspace definition lookup), `git_status`, `git_diff`, and undo-recorded `delete_file`.
+  - **Instant Post-Edit Syntax Diagnostics:** Every `edit_file` and `write_file` automatically runs `diagnostics.check_syntax()` (Python AST / JSON) and feeds `[SYNTAX ERROR]` lines back to the agent immediately before tests even run.
+  - **Smart Context Compaction & Live 32K Telemetry:** Automatically compacts older bulky tool outputs beyond the latest 6 tool calls while keeping recent reads & diffs verbatim, with a live `ctx: %` pill in the chat bar.
+  - **1-Click Turn Checkpoint Rollback (`POST /api/workspace/undo-batch`):** Every multi-file agent turn emits a `turn_checkpoint` button (`↺ Tüm Turu Geri Al`) that cleanly rolls back all edits/deletions in reverse chronological order.
 - **LTX-2.3 22B Audio+Video Studio, I2V Upload & Multi-Clip Timeline Editor (`v0.8.0`):**
   - **LTX-2.3 22B Distilled v1.1 (8-Step · 48 kHz Stereo Audio + Video):** T2V, I2V, and Z-Image → LTX-2.3 Studio workflows on 6 GB VRAM (`AMD RX 5600 XT Vulkan` / `NVIDIA CUDA`).
   - **In-IDE I2V Image Upload (`/api/media/upload-init`) & Live Step Progress Bar:** Upload any PNG/JPG/WEBP directly in the Video tab to animate it with synchronized stereo sound, plus live `1/8..8/8` DiT, Video VAE, Audio VAE, and Cinema HD telemetry.

@@ -156,7 +156,7 @@ class Workspace:
             "existed": existed,
             "old_content": old_text,
         }
-        if len(self._undo_store) > 50:
+        if len(self._undo_store) > 120:
             oldest = next(iter(self._undo_store))
             del self._undo_store[oldest]
         diff_lines = list(
@@ -192,12 +192,69 @@ class Workspace:
             p.unlink()
         return {"restored": False, "deleted": True, "path": rec["rel_path"]}
 
+    def undo_batch(self, undo_ids: list[str]) -> dict[str, Any]:
+        """Revert multiple recorded edits in reverse chronological order (turn checkpoint rollback)."""
+        restored: list[str] = []
+        deleted: list[str] = []
+        count = 0
+        for uid in reversed(list(undo_ids or [])):
+            if uid not in self._undo_store:
+                continue
+            res = self.undo_edit(uid)
+            count += 1
+            if res["deleted"]:
+                if res["path"] not in deleted:
+                    deleted.append(res["path"])
+            elif res["path"] not in restored:
+                restored.append(res["path"])
+        if count == 0:
+            raise KeyError("Geri alinacak gecerli kayit bulunamadi veya zaten geri alindi.")
+        return {"count": count, "restored_paths": restored, "deleted_paths": deleted}
+
     def delete_file(self, rel_path: str) -> bool:
         p = self.safe_path(rel_path)
         if p == self.root or not p.exists() or p.is_dir():
             return False
         p.unlink()
         return True
+
+    def delete_file_with_undo(self, rel_path: str) -> dict[str, Any]:
+        """Delete a file while recording a full undo snapshot so the deletion can be reverted."""
+        p = self.safe_path(rel_path)
+        if p == self.root or not p.exists() or p.is_dir():
+            raise FileNotFoundError(f"Silinecek dosya bulunamadi: {rel_path}")
+        rel = p.relative_to(self.root).as_posix()
+        old_text = p.read_text(encoding="utf-8", errors="replace")
+        p.unlink()
+        undo_id = uuid.uuid4().hex[:10]
+        self._undo_store[undo_id] = {
+            "abs_path": str(p),
+            "rel_path": rel,
+            "existed": True,
+            "old_content": old_text,
+        }
+        if len(self._undo_store) > 120:
+            oldest = next(iter(self._undo_store))
+            del self._undo_store[oldest]
+        diff_lines = list(
+            difflib.unified_diff(
+                old_text.splitlines(),
+                [],
+                fromfile=f"a/{rel}",
+                tofile="/dev/null",
+                n=0,
+                lineterm="",
+            )
+        )
+        removed = sum(1 for ln in diff_lines if ln.startswith("-") and not ln.startswith("---"))
+        return {
+            "path": rel,
+            "undo_id": undo_id,
+            "added": 0,
+            "removed": removed,
+            "deleted": True,
+            "diff": "\n".join(diff_lines[:60]),
+        }
 
     def project_context_snapshot(self, max_chars: int = 3600) -> str:
         """Build a compact, high-signal project overview (tree + key config/README files) for the AI agent."""

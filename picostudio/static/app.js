@@ -1555,6 +1555,8 @@ function abortAgent(){
   if(agentAbortCtrl){ agentAbortCtrl.abort(); agentAbortCtrl = null; }
 }
 
+const turnCheckpointStore = {};
+
 async function undoAgentEdit(undoId, btnEl){
   const r = await fetch('/api/workspace/undo',{
     method:'POST',headers:{'Content-Type':'application/json'},
@@ -1563,12 +1565,53 @@ async function undoAgentEdit(undoId, btnEl){
   const j = await r.json();
   if(r.ok){
     btnEl.textContent = 'Geri Alındı'; btnEl.disabled = true;
-    loadTree();
+    loadTree(); loadGitStatus(false);
     if(j.deleted){ closeTab(j.path); }
     else if(openTabs[j.path]){ delete openTabs[j.path]; openFile(j.path); }
   }else{
     alert(j.error||'Geri alinamadi');
   }
+}
+
+async function undoTurnCheckpoint(cpId, btnEl){
+  const ids = turnCheckpointStore[cpId];
+  if(!ids || !ids.length) return;
+  if(!confirm(`Bu turdaki ${ids.length} dosya değişikliğini topluca geri almak istiyor musunuz?`)) return;
+  btnEl.disabled = true;
+  try{
+    const r = await fetch('/api/workspace/undo-batch',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({undo_ids: ids})
+    });
+    const j = await r.json();
+    if(r.ok && j.ok){
+      btnEl.textContent = `✓ Tur Geri Alındı (${j.count})`;
+      delete turnCheckpointStore[cpId];
+      loadTree(); loadGitStatus(false);
+      for(const dp of (j.deleted_paths||[])){ closeTab(dp); }
+      for(const rp of (j.restored_paths||[])){
+        if(openTabs[rp]){ delete openTabs[rp]; openFile(rp); }
+      }
+    }else{
+      btnEl.disabled = false;
+      alert(j.error||'Tur geri alinamadi');
+    }
+  }catch(e){
+    btnEl.disabled = false;
+    alert('Hata: ' + e);
+  }
+}
+
+function updateAgentCtxPill(ev){
+  const el = document.getElementById('agentCtxPill');
+  if(!el || !ev) return;
+  const toks = ev.est_ctx_tokens || 0;
+  const lim = ev.ctx_limit || 32768;
+  const pct = Math.min(100, Math.round((toks / lim) * 100));
+  const kStr = toks >= 1000 ? (toks / 1000).toFixed(1) + 'k' : String(toks);
+  el.textContent = `ctx: ${kStr} (${pct}%)${ev.compacted ? ' ⚡' : ''}`;
+  el.className = 'pill' + (pct >= 85 ? ' err' : (pct >= 65 ? ' warn' : ''));
+  el.title = `Adım ${ev.step||1}/${ev.max_steps||16} · ~${toks} / ${lim} tok${ev.compacted ? ' (eski araç çıktıları sıkıştırıldı)' : ''}`;
 }
 
 async function sendAgent(){
@@ -1632,6 +1675,8 @@ async function sendAgent(){
           const ev = JSON.parse(ds);
           if(ev.type==='status'){
             aDiv.querySelector('.st').textContent = ev.text;
+          }else if(ev.type==='metrics'){
+            updateAgentCtxPill(ev);
           }else if(ev.type==='tool'){
             const d = document.createElement('div');
             d.className = 'pill';
@@ -1645,11 +1690,27 @@ async function sendAgent(){
             toolsEl.appendChild(d);
           }else if(ev.type==='file_changed'){
             loadTree(); loadGitStatus(false);
-            if(openTabs[ev.path]){ delete openTabs[ev.path]; openFile(ev.path); }
+            if(ev.deleted){
+              closeTab(ev.path);
+            }else if(openTabs[ev.path]){
+              delete openTabs[ev.path]; openFile(ev.path);
+            }
             const dc = document.createElement('div');
             dc.className = 'code-blk';
-            dc.innerHTML = `<div class="code-blk-h"><span>✏ ${escHtml(ev.path)} <b style="color:var(--ok)">+${ev.added||0}</b> <b style="color:var(--err)">-${ev.removed||0}</b></span><div class="row" style="gap:4px"><button class="sm" onclick="openFile(${escJsArg(ev.path)})">Aç</button>${ev.undo_id?`<button class="sm danger" onclick="undoAgentEdit(${escJsArg(ev.undo_id)},this)">Geri Al</button>`:''}</div></div>${ev.diff?`<pre style="max-height:110px;font-size:10.8px">${escHtml(ev.diff)}</pre>`:''}`;
+            const ico = ev.deleted ? '🗑' : '✏';
+            const openBtn = ev.deleted ? '' : `<button class="sm" onclick="openFile(${escJsArg(ev.path)})">Aç</button>`;
+            dc.innerHTML = `<div class="code-blk-h"><span>${ico} ${escHtml(ev.path)} <b style="color:var(--ok)">+${ev.added||0}</b> <b style="color:var(--err)">-${ev.removed||0}</b></span><div class="row" style="gap:4px">${openBtn}${ev.undo_id?`<button class="sm danger" onclick="undoAgentEdit(${escJsArg(ev.undo_id)},this)">Geri Al</button>`:''}</div></div>${ev.diff?`<pre style="max-height:110px;font-size:10.8px">${escHtml(ev.diff)}</pre>`:''}`;
             toolsEl.appendChild(dc);
+          }else if(ev.type==='turn_checkpoint'){
+            const cpId = 'cp_' + Math.random().toString(36).slice(2, 9);
+            turnCheckpointStore[cpId] = ev.undo_ids || [];
+            const nFiles = (ev.files || []).length;
+            const nEdits = ev.count || turnCheckpointStore[cpId].length;
+            const cpc = document.createElement('div');
+            cpc.className = 'row';
+            cpc.style.cssText = 'margin-top:8px;padding-top:6px;border-top:1px solid var(--b);justify-content:space-between;font-size:11.5px;color:var(--mut)';
+            cpc.innerHTML = `<span>📌 Tur Kayıt Noktası: ${nFiles} dosya · ${nEdits} değişiklik</span><button class="sm danger" onclick="undoTurnCheckpoint(${escJsArg(cpId)},this)">↺ Tüm Turu Geri Al</button>`;
+            aDiv.appendChild(cpc);
           }else if(ev.type==='verify'){
             const vc = document.createElement('div');
             vc.className = 'verify-card ' + (ev.passed ? 'ok' : 'fail');

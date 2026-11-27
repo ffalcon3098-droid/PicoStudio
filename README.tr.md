@@ -1,13 +1,19 @@
-# PicoStudio v0.8.0 — Yerel IDE Pro, Qwen3-Coder-30B, LTX-2.3 Ses+Video & Zaman Çizelgesi Stüdyosu
+# PicoStudio v0.9.0 — Yerel IDE Pro, Kod Ajanı v3, Qwen3-Coder-30B & LTX-2.3 Ses+Video Stüdyosu
 
 > [For English documentation, see README.md](README.md)
 
-**PicoStudio**, elinizdeki yerel **Kodlama Ajanlarını (`PicoCode` · Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** ve **Video/Görsel Motorlarını (`PicoVid` · LTX-2.3 22B Distilled 1.1 Ses+Video + Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Görsel Diff**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
+**PicoStudio**, elinizdeki yerel **Kod Ajanı v3'ü (`PicoCode v0.2.0` · 30 tok/s'ye ulaşan Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** ve **Video/Görsel Motorlarını (`PicoVid` · LTX-2.3 22B Distilled 1.1 Ses+Video + Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Git & Görsel Diff**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
 
 ---
 
 ## Öne Çıkan Özellikler
 
+- **Kod Ajanı v3 (`v0.9.0`):**
+  - **16 Adımlı Ajan Döngüsü + Tekrar Koruması:** Çok dosyalı refactor ve hata ayıklama için 16 adıma kadar otonom çalışma (Plan modunda 6 adım) ve aynı araç çağrısının sonsuz döngüye girmesini önleyen koruma.
+  - **5 Yeni AST, Git & Dosya Aracı (Toplam 11 Araç):** `repo_map` (Python/JS/TS AST sembol haritası), `find_symbols` (proje çapı sembol arama), `git_status`, `git_diff` ve geri alınabilir `delete_file`.
+  - **Anlık Düzenleme Sonrası Sözdizimi Denetimi:** Her `edit_file` ve `write_file` çağrısı anında `diagnostics.check_syntax()` (Python AST / JSON) çalıştırır; sözdizimi hatası varsa testi bile beklemeden `[SYNTAX ERROR]` olarak ajana bildirir.
+  - **Akıllı Bağlam Sıkıştırma & Canlı 32K Telemetri:** Son 6 araç çıktısını ve tüm diff'leri eksiksiz koruyup eski hacimli çıktıları otomatik sıkıştırır; sohbet üst çubuğunda canlı `ctx: %` göstergesi sunar.
+  - **Tek Tık Tur Kayıt Noktası (`POST /api/workspace/undo-batch`):** Birden fazla dosya değiştiren her ajan turunun sonunda **"↺ Tüm Turu Geri Al"** butonu ile tüm değişiklikler ve silmeler ters sırayla temiz biçimde geri alınır.
 - **LTX-2.3 22B Ses+Video Stüdyosu, I2V Yükleme & Çoklu Klip Zaman Çizelgesi (`v0.8.0`):**
   - **LTX-2.3 22B Distilled v1.1 (8 Adım · 48 kHz Stereo Ses + Video):** 6 GB VRAM'li kartlarda (`AMD RX 5600 XT Vulkan` / `NVIDIA CUDA`) T2V, I2V ve Z-Image → LTX-2.3 Stüdyo akışı.
   - **IDE İçi I2V Görsel Yükleme (`/api/media/upload-init`) & Canlı İlerleme Çubuğu:** Video sekmesinden doğrudan PNG/JPG/WEBP yükleyip sesli videoya çevirin; `1/8..8/8` DiT, Video VAE, Ses VAE ve Sinema HD aşamalarını canlı izleyin.

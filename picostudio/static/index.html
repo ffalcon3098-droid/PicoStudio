@@ -11,7 +11,7 @@
 <header>
   <div class="brand">
     <span>PicoStudio IDE</span>
-    <span class="pill">v0.8.0</span>
+    <span class="pill">v0.9.0</span>
     <span id="gpuOwnerPill" class="pill">GPU: Boşta</span>
   </div>
   <div class="row">
@@ -189,7 +189,7 @@
   <!-- RIGHT: AI CODING AGENT + VIDEO/IMAGE STUDIO -->
   <section id="rightPane" class="pane">
     <div class="rtabs">
-      <div id="rtabCode" class="rtab active" onclick="switchRightTab('code')">Kod Ajanı v2</div>
+      <div id="rtabCode" class="rtab active" onclick="switchRightTab('code')">Kod Ajanı v3</div>
       <div id="rtabVid" class="rtab" onclick="switchRightTab('media')">Video &amp; Görsel</div>
     </div>
 
@@ -197,22 +197,23 @@
     <div id="rightCode" class="rbody">
       <div class="chat-sess-bar">
         <select id="chatSessSel" onchange="selectChatSession(this.value)" title="Proje sohbet geçmişi"></select>
+        <span id="agentCtxPill" class="pill" title="Tahmini bağlam penceresi kullanımı (32K)">ctx: 0%</span>
         <button class="sm" onclick="newChatSession()" title="Yeni sohbet başlat">+ Yeni</button>
         <button class="sm danger" onclick="deleteCurrentChatSession()" title="Sohbeti sil">×</button>
       </div>
       <div id="chatFeed" class="chat-feed">
         <div class="msg">
-          <div class="msg-hdr"><span>PicoStudio Ajan v2</span><span>6 GB VRAM Hazır</span></div>
-          <b>@dosya</b> yazarak herhangi bir dosyayı doğrudan bağlama ekleyebilir, editörde <b>Ctrl+K</b> ile satır içi AI düzenleme yapabilir, <b>Planla + Onayla</b> veya <b>Oto-Test</b> ile çok dosyalı görevler çalıştırabilirsiniz.
+          <div class="msg-hdr"><span>PicoStudio Ajan v3</span><span>16 Adım · AST + Git</span></div>
+          <b>@dosya</b> ile bağlam ekleyin, <b>Ctrl+K</b> ile satır içi düzenleyin; <b>Ajan v3</b> AST repo haritası, Git diff, anlık sözdizimi denetimi, <b>Oto-Test</b> ve tek tık <b>Tüm Turu Geri Al</b> ile çok dosyalı görevleri güvenle tamamlar.
         </div>
       </div>
       <div class="chat-ctrl">
         <div class="chat-opts">
           <label><input type="checkbox" id="chkIncludeFile" checked /> Proje + dosya</label>
-          <select id="agentMode" title="Hızlı anında yanıtlar; Planla+Onayla önce plan çıkarır; Ajan doğrudan dosya okuyup yazar">
+          <select id="agentMode" title="Hızlı anında yanıtlar; Planla+Onayla önce plan çıkarır; Ajan v3 16 adıma kadar AST/Git araçlarıyla çalışır">
             <option value="fast">Hızlı (Proje Bağlamlı)</option>
             <option value="plan">Planla + Onayla (Çok Dosyalı)</option>
-            <option value="agent" selected>Ajan v2 (Dosya + Araçlar)</option>
+            <option value="agent" selected>Ajan v3 (16 Adım · AST + Git)</option>
           </select>
           <label title="Ajan dosya düzenledikten sonra proje testlerini otomatik koşar; hata çıkarsa kendi düzeltir"><input type="checkbox" id="chkAutoVerify" checked /> Oto-Test</label>
           <label style="cursor:pointer"><span class="pill">+ Görsel</span><input id="chatImg" type="file" accept="image/*" style="display:none" onchange="onChatImg(event)" /></label>

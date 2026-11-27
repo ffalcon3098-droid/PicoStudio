@@ -30,7 +30,17 @@ if str(STUDIO_ROOT) not in sys.path:
     sys.path.insert(0, str(STUDIO_ROOT))
 
 from picostudio import diagnostics, git_ops, symbols
-from picostudio.agent import detect_test_command, execute_tool, extract_at_file_context, is_dangerous_command, load_project_rules, run_agent_stream, run_workspace_tests
+from picostudio.agent import (
+    compact_conversation,
+    detect_test_command,
+    estimate_context_tokens,
+    execute_tool,
+    extract_at_file_context,
+    is_dangerous_command,
+    load_project_rules,
+    run_agent_stream,
+    run_workspace_tests,
+)
 from picostudio.arbiter import GPUArbiter, load_config
 from picostudio.cli import build_parser
 from picostudio.sessions import ChatSessionStore
@@ -158,7 +168,8 @@ class TestPicoStudioSuite(unittest.TestCase):
                     html = r.read().decode("utf-8")
                     self.assertEqual(r.status, 200)
                     self.assertIn("PicoStudio IDE", html)
-                    self.assertIn("v0.8.0", html)
+                    self.assertIn("v0.9.0", html)
+                    self.assertIn("agentCtxPill", html)
                     self.assertIn("/static/style.css", html)
                     self.assertIn("/static/app.js", html)
                     m_tok = re.search(r'name="ps-csrf"\s+content="([^"]+)"', html)
@@ -171,6 +182,7 @@ class TestPicoStudioSuite(unittest.TestCase):
                     self.assertIn("replaceEditorRange", app_js)
                     self.assertIn("X-PicoStudio-Token", app_js)
                     self.assertIn("approvePlanAndRun", app_js)
+                    self.assertIn("undoTurnCheckpoint", app_js)
 
                 with urllib.request.urlopen(f"{base}/static/style.css", timeout=5) as r:
                     self.assertEqual(r.status, 200)
@@ -584,6 +596,149 @@ class TestPicoStudioSuite(unittest.TestCase):
             app_js_src = (STUDIO_ROOT / "picostudio" / "static" / "app.js").read_text(encoding="utf-8")
             unsafe = [ln for ln in app_js_src.splitlines() if "onclick=" in ln and "'${escHtml(" in ln]
             self.assertEqual(unsafe, [])
+
+    def test_11_v090_agent_v3_tools_syntax_compaction_and_batch_undo(self) -> None:
+        import subprocess
+        from http.server import BaseHTTPRequestHandler
+        with tempfile.TemporaryDirectory() as td:
+            ws = Workspace(td)
+            subprocess.run(["git", "init"], cwd=td, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "v3@picostudio.local"], cwd=td, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "AgentV3"], cwd=td, check=True, capture_output=True)
+
+            ws.write_file("core/engine.py", "class Physics:\n    def step(self, dt):\n        return dt * 2\n")
+            ws.write_file("web/hud.js", "export function drawScore(v) { return String(v); }\n")
+            subprocess.run(["git", "add", "."], cwd=td, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=td, check=True, capture_output=True)
+
+            # 1) repo_map & find_symbols tools
+            rmap, _ = execute_tool(ws, "repo_map", {})
+            self.assertIn("core/engine.py", rmap)
+            self.assertIn("Physics.step", rmap)
+            self.assertIn("web/hud.js", rmap)
+            self.assertIn("drawScore", rmap)
+
+            fsym, _ = execute_tool(ws, "find_symbols", {"query": "step", "exact": True})
+            self.assertIn("core/engine.py:2", fsym)
+
+            # 2) Instant post-edit syntax feedback on broken Python & JSON
+            bad_out, bad_chg = execute_tool(
+                ws, "edit_file",
+                {"path": "core/engine.py", "target": "return dt * 2", "replacement": "return (dt *"},
+            )
+            self.assertIn("[SYNTAX ERROR]", bad_out)
+            self.assertIsNotNone(bad_chg)
+            self.assertTrue(bad_chg.get("diagnostics"))
+
+            bad_json_out, bad_json_chg = execute_tool(
+                ws, "write_file",
+                {"path": "cfg.json", "content": '{"broken": }'},
+            )
+            self.assertIn("[SYNTAX ERROR]", bad_json_out)
+            self.assertIsNotNone(bad_json_chg)
+
+            # 3) git_status & git_diff tools
+            gs_out, _ = execute_tool(ws, "git_status", {})
+            self.assertIn("core/engine.py", gs_out)
+            gd_out, _ = execute_tool(ws, "git_diff", {"path": "core/engine.py"})
+            self.assertIn("return (dt *", gd_out)
+
+            # 4) Undo-recorded delete_file + batch reverse rollback (undo_batch)
+            del_out, del_chg = execute_tool(ws, "delete_file", {"path": "web/hud.js"})
+            self.assertIn("OK: Deleted web/hud.js", del_out)
+            self.assertTrue(del_chg["deleted"])
+            self.assertFalse((pathlib.Path(td) / "web" / "hud.js").exists())
+
+            # Roll back all 3 operations in one batch!
+            batch_res = ws.undo_batch([bad_chg["undo_id"], bad_json_chg["undo_id"], del_chg["undo_id"]])
+            self.assertEqual(batch_res["count"], 3)
+            self.assertIn("return dt * 2", ws.read_file("core/engine.py")["content"])
+            self.assertTrue((pathlib.Path(td) / "web" / "hud.js").exists())
+            self.assertFalse((pathlib.Path(td) / "cfg.json").exists())
+
+            # 5) Smart context compaction shrinks old bulky tool outputs, keeps recent ones verbatim
+            conv = [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}]
+            for i in range(8):
+                conv.append({"role": "tool", "tool_call_id": f"t{i}", "content": f"Header {i}\n" + ("x" * 1200) + f"\nFooter {i}"})
+            before_toks = estimate_context_tokens(conv)
+            comp_conv, did_compact = compact_conversation(conv, keep_recent_tool_msgs=3, max_total_chars=2000)
+            after_toks = estimate_context_tokens(comp_conv)
+            self.assertTrue(did_compact)
+            self.assertLess(after_toks, before_toks)
+            self.assertIn("[Compacted older tool output", comp_conv[2]["content"])
+            self.assertNotIn("[Compacted", comp_conv[-1]["content"])
+
+            # 6) End-to-end Agent v3 stream: duplicate loop guard + metrics + turn_checkpoint + HTTP undo-batch
+            step_n = {"n": 0}
+
+            class MockV3LLM(BaseHTTPRequestHandler):
+                def log_message(self, fmt, *args):
+                    pass
+
+                def do_POST(self):
+                    n = int(self.headers.get("Content-Length", "0"))
+                    _ = json.loads(self.rfile.read(n).decode("utf-8"))
+                    step_n["n"] += 1
+                    idx = step_n["n"]
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.end_headers()
+
+                    def send_sse(delta_obj):
+                        self.wfile.write(f"data: {json.dumps({'choices': [{'delta': delta_obj}]})}\n\n".encode("utf-8"))
+
+                    if idx in (1, 2, 3):
+                        # Repeat exact same repo_map call 3 times -> 3rd triggers duplicate loop guard!
+                        send_sse({"tool_calls": [{"index": 0, "id": f"r{idx}", "function": {"name": "repo_map", "arguments": "{}"}}]})
+                    elif idx == 4:
+                        send_sse({"tool_calls": [{"index": 0, "id": "e1", "function": {"name": "edit_file", "arguments": json.dumps({"path": "core/engine.py", "target": "return dt * 2", "replacement": "return dt * 3"})}}]})
+                    else:
+                        send_sse({"content": "Tamamlandi."})
+                    self.wfile.write(b"data: [DONE]\n\n")
+                    self.wfile.flush()
+
+            mock_srv = ThreadingHTTPServer(("127.0.0.1", 0), MockV3LLM)
+            mock_srv.daemon_threads = True
+            t = threading.Thread(target=mock_srv.serve_forever, daemon=True)
+            t.start()
+
+            arb = GPUArbiter(load_config())
+            arb.llm_host = "127.0.0.1"
+            arb.llm_port = mock_srv.server_address[1]
+            arb.coding_model = "mock-v3"
+            term = TerminalManager(td)
+            cstore = ChatSessionStore(pathlib.Path(td) / "_chats")
+            ide_srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(arb, ws, term, chat_store=cstore, csrf_token="v3-tok"))
+            ide_srv.daemon_threads = True
+            t2 = threading.Thread(target=ide_srv.serve_forever, daemon=True)
+            t2.start()
+            try:
+                evs = list(run_agent_stream(arb, ws, [{"role": "user", "content": "carpan 3 yap"}], mode="agent"))
+                self.assertTrue(any(e["type"] == "metrics" and e["max_steps"] == 16 for e in evs))
+                self.assertTrue(any(e["type"] == "tool_result" and "Repeated identical call" in e["summary"] for e in evs))
+                cps = [e for e in evs if e["type"] == "turn_checkpoint"]
+                self.assertEqual(len(cps), 1)
+                self.assertEqual(cps[0]["count"], 1)
+                self.assertIn("return dt * 3", ws.read_file("core/engine.py")["content"])
+
+                # Revert via HTTP POST /api/workspace/undo-batch
+                req_ub = urllib.request.Request(
+                    f"http://127.0.0.1:{ide_srv.server_address[1]}/api/workspace/undo-batch",
+                    data=json.dumps({"undo_ids": cps[0]["undo_ids"]}).encode("utf-8"),
+                    headers={"Content-Type": "application/json", "X-PicoStudio-Token": "v3-tok"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_ub, timeout=5) as r:
+                    ub = json.loads(r.read().decode("utf-8"))
+                    self.assertTrue(ub["ok"])
+                    self.assertEqual(ub["count"], 1)
+                self.assertIn("return dt * 2", ws.read_file("core/engine.py")["content"])
+            finally:
+                term.stop_all()
+                ide_srv.shutdown()
+                ide_srv.server_close()
+                mock_srv.shutdown()
+                mock_srv.server_close()
 
 
 if __name__ == "__main__":

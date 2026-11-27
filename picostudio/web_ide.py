@@ -296,6 +296,14 @@ def make_handler(
                 except Exception as exc:
                     self._json({"error": str(exc)}, status=400)
                 return
+            if path == "/api/workspace/undo-batch":
+                try:
+                    raw_ids = [str(x) for x in (body.get("undo_ids") or []) if x]
+                    res = ws.undo_batch(raw_ids)
+                    self._json({"ok": True, **res})
+                except Exception as exc:
+                    self._json({"error": str(exc)}, status=400)
+                return
             if path == "/api/workspace/replace":
                 res = ws.replace_in_project(
                     str(body.get("query") or ""),
@@ -691,7 +699,7 @@ def run_ide(
     httpd = PicoStudioHTTPServer((h, p), make_handler(arbiter, ws, term_mgr, chat_store=chat_store))
     url = f"http://{h}:{p}/"
     print("============================================================")
-    print(f"  PicoStudio Local IDE v0.7.0 -> {url}")
+    print(f"  PicoStudio Local IDE v0.9.0 -> {url}")
     print(f"  Aktif Proje                 -> {ws.root}")
     print(f"  Kodlama Motoru              -> {arbiter.picocode_dir}")
     print(f"  Video/Gorsel Motoru         -> {arbiter.picovid_dir}")
