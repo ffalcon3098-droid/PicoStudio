@@ -96,16 +96,16 @@ def make_handler(
 
         def _check_post_security(self) -> tuple[bool, str]:
             if not self._check_host():
-                return False, "Gecersiz Host basligi (DNS rebinding engellendi)."
+                return False, "Invalid Host header (DNS rebinding blocked)."
             origin = (self.headers.get("Origin") or "").strip()
             if origin and not _is_local_origin(origin):
-                return False, "Harici Origin engellendi."
+                return False, "External Origin blocked."
             ctype = (self.headers.get("Content-Type") or "").lower()
             if "application/json" not in ctype:
-                return False, "Content-Type application/json zorunludur."
+                return False, "Content-Type application/json is required."
             tok = (self.headers.get("X-PicoStudio-Token") or "").strip()
             if not secrets.compare_digest(tok, session_csrf):
-                return False, "Gecersiz veya eksik CSRF token (X-PicoStudio-Token)."
+                return False, "Invalid or missing CSRF token (X-PicoStudio-Token)."
             return True, ""
 
         def _body_json(self, max_bytes: int = 4 * 1024 * 1024) -> dict[str, Any]:
@@ -114,7 +114,7 @@ def make_handler(
             except ValueError:
                 return {}
             if n < 0 or n > max_bytes:
-                raise ValueError(f"Istek boyutu siniri asiyor ({n} > {max_bytes}).")
+                raise ValueError(f"Request body exceeds limit ({n} > {max_bytes}).")
             raw = self.rfile.read(n) if n > 0 else b"{}"
             try:
                 return json.loads(raw.decode("utf-8")) if raw else {}
@@ -202,7 +202,7 @@ def make_handler(
                 return
             if path == "/api/chat/session":
                 rec = chat_store.load_session(ws.root, qs.get("id", ""))
-                self._json(rec if rec else {"error": "Sohbet bulunamadi"}, status=200 if rec else 404)
+                self._json(rec if rec else {"error": "Chat session not found"}, status=200 if rec else 404)
                 return
             if path == "/api/terminal/sessions":
                 self._json({"sessions": term_mgr.list_sessions()})
@@ -235,10 +235,10 @@ def make_handler(
                 try:
                     fpath.relative_to(out_root)
                 except ValueError:
-                    self._json({"error": "Yetkisiz yol"}, status=403)
+                    self._json({"error": "Unauthorized path"}, status=403)
                     return
                 if not fpath.exists() or not fpath.is_file():
-                    self._json({"error": "Bulunamadi"}, status=404)
+                    self._json({"error": "Not found"}, status=404)
                     return
                 data = fpath.read_bytes()
                 ctype = mimetypes.guess_type(fpath.name)[0] or "application/octet-stream"
@@ -430,7 +430,7 @@ def make_handler(
                     diff_info = git_ops.get_diff(ws, "", staged=False)
                 raw_diff = (diff_info.get("raw") or "")[:3200]
                 if not raw_diff:
-                    self._json({"error": "Diff bos; once bir degisiklik yapin."}, status=400)
+                    self._json({"error": "Diff is empty; make a change first."}, status=400)
                     return
                 ok, code, txt = arbiter.chat_complete(
                     [
@@ -531,18 +531,18 @@ def make_handler(
                 raw_name = re.sub(r"[^a-zA-Z0-9._-]", "_", str(body.get("name") or "init.png"))
                 ext = pathlib.Path(raw_name).suffix.lower()
                 if ext not in (".png", ".jpg", ".jpeg", ".webp"):
-                    self._json({"error": "Sadece PNG, JPG veya WEBP yuklenebilir."}, status=400)
+                    self._json({"error": "Only PNG, JPG, or WEBP images are allowed."}, status=400)
                     return
                 if "," not in data_url:
-                    self._json({"error": "Gecersiz gorsel verisi."}, status=400)
+                    self._json({"error": "Invalid image data."}, status=400)
                     return
                 b64_part = data_url.split(",", 1)[1]
                 if len(b64_part) > 21 * 1024 * 1024:
-                    self._json({"error": "Gorsel 15 MB sinirini asiyor."}, status=413)
+                    self._json({"error": "Image exceeds the 15 MB limit."}, status=413)
                     return
                 raw_bytes = _b64.b64decode(b64_part)
                 if len(raw_bytes) > 15 * 1024 * 1024:
-                    self._json({"error": "Gorsel 15 MB sinirini asiyor."}, status=413)
+                    self._json({"error": "Image exceeds the 15 MB limit."}, status=413)
                     return
                 up_dir = arbiter.picovid_dir / "outputs" / "_uploads"
                 up_dir.mkdir(parents=True, exist_ok=True)
@@ -563,7 +563,7 @@ def make_handler(
                         or not cand.is_file()
                         or cand.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp")
                     ):
-                        self._json({"error": "Gecersiz giris gorseli yolu."}, status=403)
+                        self._json({"error": "Invalid input image path."}, status=403)
                         return
                     init_img = str(cand)
                 ok, msg, out_path = arbiter.start_media(
@@ -582,7 +582,7 @@ def make_handler(
             if path == "/api/media/timeline":
                 raw_clips = list(body.get("clips") or [])
                 if not raw_clips:
-                    self._json({"error": "Zaman cizelgesi icin en az 1 klip secin."}, status=400)
+                    self._json({"error": "Select at least 1 clip for the timeline."}, status=400)
                     return
                 out_root = (arbiter.picovid_dir / "outputs").resolve()
                 clip_specs: list[dict[str, Any]] = []
@@ -592,10 +592,10 @@ def make_handler(
                     try:
                         cand.relative_to(out_root)
                     except ValueError:
-                        self._json({"error": f"Yetkisiz klip yolu: {rel}"}, status=403)
+                        self._json({"error": f"Unauthorized clip path: {rel}"}, status=403)
                         return
                     if not cand.exists() or not cand.is_file():
-                        self._json({"error": f"Klip bulunamadi: {rel}"}, status=404)
+                        self._json({"error": f"Clip not found: {rel}"}, status=404)
                         return
                     clip_specs.append({
                         "path": cand,
@@ -722,12 +722,12 @@ def run_ide(
     httpd = PicoStudioHTTPServer((h, p), make_handler(arbiter, ws, term_mgr, chat_store=chat_store))
     url = f"http://{h}:{p}/"
     print("============================================================")
-    print(f"  PicoStudio Local IDE v0.11.0 -> {url}")
-    print(f"  Aktif Proje                 -> {ws.root}")
-    print(f"  Kodlama Motoru              -> {arbiter.picocode_dir}")
-    print(f"  Video/Gorsel Motoru         -> {arbiter.picovid_dir}")
-    print("  Guvenlik                    -> Host + Origin + CSRF Aktif")
-    print("  Kapatmak icin Ctrl+C")
+    print(f"  PicoStudio Local IDE v0.12.0 -> {url}")
+    print(f"  Active Project              -> {ws.root}")
+    print(f"  Coding Engine               -> {arbiter.picocode_dir}")
+    print(f"  Video/Image Engine          -> {arbiter.picovid_dir}")
+    print("  Security                    -> Host + Origin + CSRF Active")
+    print("  Press Ctrl+C to stop")
     print("============================================================", flush=True)
     if open_browser:
         threading.Timer(0.7, lambda: webbrowser.open(url)).start()

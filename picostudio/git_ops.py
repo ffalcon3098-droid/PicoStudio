@@ -33,9 +33,9 @@ def _run_git(cwd: pathlib.Path, args: list[str], timeout: int = 15) -> tuple[int
         )
         return res.returncode, res.stdout or "", res.stderr or ""
     except FileNotFoundError:
-        return 127, "", "git bulunamadi (PATH icinde degil)."
+        return 127, "", "git not found in PATH."
     except subprocess.TimeoutExpired:
-        return 124, "", "git komutu zaman asimina ugradi."
+        return 124, "", "git command timed out."
 
 
 def is_git_repo(ws: Workspace) -> bool:
@@ -197,7 +197,7 @@ def _parse_unified_diff(diff_text: str) -> dict[str, Any]:
 
 def get_diff(ws: Workspace, rel_path: str = "", staged: bool = False) -> dict[str, Any]:
     if not is_git_repo(ws):
-        return {"error": "Bu klasor bir Git reposu degil.", "added": 0, "removed": 0, "lines": [], "split_rows": [], "raw": ""}
+        return {"error": "This folder is not a Git repository.", "added": 0, "removed": 0, "lines": [], "split_rows": [], "raw": ""}
 
     rel_clean = (rel_path or "").strip()
     if rel_clean:
@@ -212,7 +212,7 @@ def get_diff(ws: Workspace, rel_path: str = "", staged: bool = False) -> dict[st
 
     rc, out, _ = _run_git(ws.root, args)
     if rc == 0 and out.strip():
-        return {"path": rel_clean or "(tum degisiklikler)", "staged": staged, **_parse_unified_diff(out)}
+        return {"path": rel_clean or "(all changes)", "staged": staged, **_parse_unified_diff(out)}
 
     # Handle untracked file preview by diffing against empty content
     if rel_clean and not staged:
@@ -227,12 +227,12 @@ def get_diff(ws: Workspace, rel_path: str = "", staged: bool = False) -> dict[st
             except OSError:
                 pass
 
-    return {"path": rel_clean or "(tum degisiklikler)", "staged": staged, "added": 0, "removed": 0, "lines": [], "split_rows": [], "raw": ""}
+    return {"path": rel_clean or "(all changes)", "staged": staged, "added": 0, "removed": 0, "lines": [], "split_rows": [], "raw": ""}
 
 
 def stage_path(ws: Workspace, rel_path: str | None = None) -> tuple[bool, str]:
     if not is_git_repo(ws):
-        return False, "Git reposu bulunamadi."
+        return False, "Git repository not found."
     if rel_path and rel_path.strip():
         p = ws.safe_path(rel_path)
         rel = p.relative_to(ws.root).as_posix()
@@ -244,7 +244,7 @@ def stage_path(ws: Workspace, rel_path: str | None = None) -> tuple[bool, str]:
 
 def unstage_path(ws: Workspace, rel_path: str | None = None) -> tuple[bool, str]:
     if not is_git_repo(ws):
-        return False, "Git reposu bulunamadi."
+        return False, "Git repository not found."
     if rel_path and rel_path.strip():
         p = ws.safe_path(rel_path)
         rel = p.relative_to(ws.root).as_posix()
@@ -260,30 +260,30 @@ def unstage_path(ws: Workspace, rel_path: str | None = None) -> tuple[bool, str]
 
 def revert_path(ws: Workspace, rel_path: str) -> tuple[bool, str]:
     if not is_git_repo(ws):
-        return False, "Git reposu bulunamadi."
+        return False, "Git repository not found."
     p = ws.safe_path(rel_path)
     rel = p.relative_to(ws.root).as_posix()
     # Check if file is tracked in git
     rc_ls, out_ls, _ = _run_git(ws.root, ["ls-files", "--", rel])
     if rc_ls == 0 and out_ls.strip():
         rc, _, err = _run_git(ws.root, ["checkout", "--", rel])
-        return (rc == 0), (err.strip() or f"{rel} geri yuklendi.")
+        return (rc == 0), (err.strip() or f"Reverted {rel}.")
     # Untracked file inside workspace -> safe delete
     if p.exists() and p.is_file():
         p.unlink()
-        return True, f"Izlenmeyen dosya silindi: {rel}"
-    return False, f"Dosya bulunamadi: {rel}"
+        return True, f"Deleted untracked file: {rel}"
+    return False, f"File not found: {rel}"
 
 
 def commit_changes(ws: Workspace, message: str) -> dict[str, Any]:
     if not is_git_repo(ws):
-        return {"ok": False, "error": "Git reposu bulunamadi."}
+        return {"ok": False, "error": "Git repository not found."}
     msg = (message or "").strip()
     if not msg:
-        return {"ok": False, "error": "Commit mesaji bos olamaz."}
+        return {"ok": False, "error": "Commit message cannot be empty."}
     rc, out, err = _run_git(ws.root, ["commit", "-m", msg])
     if rc != 0:
-        return {"ok": False, "error": (err or out).strip() or "Commit basarisiz."}
+        return {"ok": False, "error": (err or out).strip() or "Commit failed."}
     _, h_out, _ = _run_git(ws.root, ["rev-parse", "--short", "HEAD"])
     return {"ok": True, "hash": h_out.strip(), "summary": out.strip().splitlines()[0] if out.strip() else "Committed"}
 

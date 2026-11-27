@@ -150,7 +150,7 @@ function updateCursorStatus(){
   const lines = before.split('\n');
   const ln = lines.length, col = lines[lines.length - 1].length + 1;
   const lang = detectLang(activeTab);
-  document.getElementById('cursorStatus').textContent = activeTab ? `Sat ${ln}, Süt ${col} · ${lang.toUpperCase()}` : '';
+  document.getElementById('cursorStatus').textContent = activeTab ? `Ln ${ln}, Col ${col} · ${lang.toUpperCase()}` : '';
 }
 
 function scheduleHighlight(){
@@ -348,30 +348,30 @@ function togglePane(id){
 
 /* Command Palette (Ctrl+Shift+P) */
 const IDE_COMMANDS = [
-  {label:'Dosya: Hızlı Aç (Ctrl+P)', run:()=>openQuickOpen()},
-  {label:'Gezinme: Dosya Sembolleri / Outline (Ctrl+Shift+O)', run:()=>openSymbolPalette(false)},
-  {label:'Gezinme: Tüm Proje Sembollerinde Ara (#)', run:()=>openSymbolPalette(true)},
-  {label:'Gezinme: İmleçteki Sembol Tanımına Git (F12)', run:()=>gotoDefinitionAtCursor()},
-  {label:'Editör: AI Kod Tamamlama (Alt+Space)', run:()=>triggerFimComplete()},
-  {label:'Editör: Satır İçi AI Düzenle (Ctrl+K)', run:()=>openInlineEditBar()},
-  {label:'Editör: Dosya İçi Bul & Değiştir (Ctrl+F)', run:()=>toggleFindBar(true)},
-  {label:'Editör: Aktif Dosyayı Kaydet (Ctrl+S)', run:()=>saveActiveFile()},
-  {label:'Editör: Yazı Boyutunu Büyüt (A+)', run:()=>adjustFontSize(1)},
-  {label:'Editör: Yazı Boyutunu Küçült (A-)', run:()=>adjustFontSize(-1)},
-  {label:'Görünüm: Tema Değiştir (Midnight / Obsidian / Light)', run:()=>cycleTheme()},
-  {label:'Görünüm: Sol Paneli Gizle/Göster (Ctrl+B)', run:()=>togglePane('leftPane')},
-  {label:'Görünüm: Sağ AI Panelini Gizle/Göster (Ctrl+Shift+B)', run:()=>togglePane('rightPane')},
-  {label:'Git: Git & Diff Paneline Geç', run:()=>switchLeftTab('git')},
-  {label:'Git: Çok Dosyalı Değişiklik İnceleme Paneli (Side-by-Side)', run:()=>openMultiFileReview()},
-  {label:'Git: Tüm Değişikliklerin Diff Önizlemesi', run:()=>openGitDiff('', false)},
-  {label:'Terminal: Yeni Sekme Aç', run:()=>createTerminalTab()},
-  {label:'Terminal: Proje Testlerini Çalıştır', run:()=>runTerm('py -m unittest discover -s tests -v')},
-  {label:'Terminal: Son Hatayı AI Ajan v3 ile Düzelt', run:()=>autoFixTerminalError()},
-  {label:'Terminal: Büyüt / Küçült', run:()=>toggleTermMax()},
-  {label:'Ajan: Yeni Sohbet Başlat', run:()=>newChatSession()},
-  {label:'Ajan: Planla + Onayla Moduna Geç', run:()=>{document.getElementById('agentMode').value='plan';}},
-  {label:'GPU: Kodlama AI Başlat/Durdur', run:()=>toggleCodingEngine()},
-  {label:'GPU: Tüm GPU Belleğini Boşalt', run:()=>stopAllGpu()},
+  {label:'File: Quick Open (Ctrl+P)', run:()=>openQuickOpen()},
+  {label:'Go: File Symbols / Outline (Ctrl+Shift+O)', run:()=>openSymbolPalette(false)},
+  {label:'Go: Search Workspace Symbols (#)', run:()=>openSymbolPalette(true)},
+  {label:'Go: Go to Definition at Cursor (F12)', run:()=>gotoDefinitionAtCursor()},
+  {label:'Editor: AI Code Completion (Alt+Space)', run:()=>triggerFimComplete()},
+  {label:'Editor: Inline AI Edit (Ctrl+K)', run:()=>openInlineEditBar()},
+  {label:'Editor: Find & Replace in File (Ctrl+F)', run:()=>toggleFindBar(true)},
+  {label:'Editor: Save Active File (Ctrl+S)', run:()=>saveActiveFile()},
+  {label:'Editor: Increase Font Size (A+)', run:()=>adjustFontSize(1)},
+  {label:'Editor: Decrease Font Size (A-)', run:()=>adjustFontSize(-1)},
+  {label:'View: Switch Theme (Midnight / Obsidian / Light)', run:()=>cycleTheme()},
+  {label:'View: Toggle Left Sidebar (Ctrl+B)', run:()=>togglePane('leftPane')},
+  {label:'View: Toggle Right AI Panel (Ctrl+Shift+B)', run:()=>togglePane('rightPane')},
+  {label:'Git: Switch to Git & Diff Panel', run:()=>switchLeftTab('git')},
+  {label:'Git: Multi-File Changes Review (Side-by-Side)', run:()=>openMultiFileReview()},
+  {label:'Git: Preview All Working Changes Diff', run:()=>openGitDiff('', false)},
+  {label:'Terminal: New Tab', run:()=>createTerminalTab()},
+  {label:'Terminal: Run Project Tests', run:()=>runTerm('py -m unittest discover -s tests -v')},
+  {label:'Terminal: Fix Last Error with AI Agent v3', run:()=>autoFixTerminalError()},
+  {label:'Terminal: Maximize / Restore', run:()=>toggleTermMax()},
+  {label:'Agent: New Chat Session', run:()=>newChatSession()},
+  {label:'Agent: Switch to Plan + Approve Mode', run:()=>{document.getElementById('agentMode').value='plan';}},
+  {label:'GPU: Start / Stop Coding AI', run:()=>toggleCodingEngine()},
+  {label:'GPU: Free All GPU Memory', run:()=>stopAllGpu()},
 ];
 let cmdFiltered = []; let cmdSel = 0;
 function openCmdPalette(){
@@ -386,7 +386,7 @@ function renderCmdPalette(){
   if(cmdSel >= cmdFiltered.length) cmdSel = 0;
   document.getElementById('cmdPaletteList').innerHTML = cmdFiltered.map((x,i)=>
     `<div class="qo-item${i===cmdSel?' sel':''}" onclick="execCmdIdx(${i})"><span>${escHtml(x.cmd.label)}</span></div>`
-  ).join('') || '<div style="padding:12px 14px;color:var(--mut);font-size:12px">Komut bulunamadı.</div>';
+  ).join('') || '<div style="padding:12px 14px;color:var(--mut);font-size:12px">No matching commands.</div>';
 }
 function execCmdIdx(i){
   const item = cmdFiltered[i]; closeCmdPalette();
@@ -405,9 +405,9 @@ function renderDiagnostics(diags){
   if(!diags || !diags.length){ bar.style.display='none'; bar.innerHTML=''; return; }
   const d = diags[0];
   bar.style.display = 'flex';
-  bar.innerHTML = `<b>⚠ Satır ${d.line}:${d.col}</b><span style="flex:1">${escHtml(d.message)}</span>`
-    + `<button class="sm" onclick="gotoEditorLine(${d.line})">Satıra Git</button>`
-    + `<button class="sm primary" onclick="askAiFixDiag(${d.line}, ${escJsArg(d.message)})">AI ile Düzelt</button>`;
+  bar.innerHTML = `<b>⚠ Line ${d.line}:${d.col}</b><span style="flex:1">${escHtml(d.message)}</span>`
+    + `<button class="sm" onclick="gotoEditorLine(${d.line})">Go to Line</button>`
+    + `<button class="sm primary" onclick="askAiFixDiag(${d.line}, ${escJsArg(d.message)})">Fix with AI</button>`;
 }
 async function checkActiveDiagnostics(){
   if(!activeTab) { renderDiagnostics([]); return; }
@@ -419,13 +419,13 @@ async function checkActiveDiagnostics(){
 function askAiFixDiag(line, msg){
   switchRightTab('code');
   document.getElementById('agentMode').value = 'agent';
-  document.getElementById('chatInp').value = `@${activeTab} dosyasının ${line}. satırındaki şu sözdizimi hatasını düzelt: ${msg}`;
+  document.getElementById('chatInp').value = `Fix the syntax error at line ${line} in @${activeTab}: ${msg}`;
   sendAgent();
 }
 
 /* Cursor-Style Ctrl+K Inline Edit */
 function openInlineEditBar(){
-  if(!activeTab){ alert('Önce bir dosya açın.'); return; }
+  if(!activeTab){ alert('Open a file first.'); return; }
   const s = editor.selectionStart, end = editor.selectionEnd;
   inlineEditState = {
     start: s, end: end,
@@ -438,8 +438,8 @@ function openInlineEditBar(){
   const inp = document.getElementById('inlineKInp');
   inp.value = '';
   inp.placeholder = inlineEditState.selection
-    ? `Seçili ${inlineEditState.selection.split('\n').length} satıra ne yapılsın?...`
-    : 'Aktif dosyaya ne yapılsın? (seçim yoksa tüm dosya düzenlenir)...';
+    ? `What should change in the selected ${inlineEditState.selection.split('\n').length} lines?...`
+    : 'What should change in the active file? (edits entire file if nothing selected)...';
   inp.focus();
 }
 function closeInlineEditBar(){
@@ -451,7 +451,7 @@ async function runInlineEdit(){
   const instr = document.getElementById('inlineKInp').value.trim();
   if(!instr) return;
   const btn = document.getElementById('inlineKRunBtn');
-  btn.disabled = true; btn.textContent = 'Üretiliyor...';
+  btn.disabled = true; btn.textContent = 'Generating...';
   try{
     const r = await fetch('/api/editor/inline-edit',{
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -462,13 +462,13 @@ async function runInlineEdit(){
       })
     });
     const j = await r.json();
-    if(!r.ok || j.replacement == null){ alert(j.error || 'Düzenleme üretilemedi.'); return; }
+    if(!r.ok || j.replacement == null){ alert(j.error || 'Could not generate edit.'); return; }
     inlineEditState.replacement = j.replacement;
     document.getElementById('inlineKDiff').textContent = j.diff || j.replacement;
-    document.getElementById('inlineKStats').textContent = `+${j.added||0} / -${j.removed||0} satır`;
+    document.getElementById('inlineKStats').textContent = `+${j.added||0} / -${j.removed||0} lines`;
     document.getElementById('inlineKPreview').style.display = 'flex';
   }finally{
-    btn.disabled = false; btn.textContent = 'Önizle';
+    btn.disabled = false; btn.textContent = 'Preview';
   }
 }
 function applyInlineEdit(){
@@ -530,7 +530,7 @@ async function loadChatSessions(){
     const r = await fetch('/api/chat/sessions').then(x=>x.json());
     const sel = document.getElementById('chatSessSel');
     const items = r.sessions || [];
-    sel.innerHTML = `<option value="">— Mevcut Sohbet —</option>` + items.map(s=>
+    sel.innerHTML = `<option value="">— Current Chat —</option>` + items.map(s=>
       `<option value="${escHtml(s.id)}"${s.id===currentChatId?' selected':''}>${escHtml(s.title)} (${s.count})</option>`
     ).join('');
   }catch(e){}
@@ -561,8 +561,8 @@ async function selectChatSession(sid){
     idx++;
     const d = document.createElement('div');
     d.className = 'msg' + (m.role==='user' ? ' user' : '');
-    const who = m.role==='user' ? 'Sen' : 'Ajan';
-    d.innerHTML = `<div class="msg-hdr"><span>${who}</span><span>Kayıtlı</span></div><div>${m.role==='user'?escHtml(m.content):renderAgentMarkdown(m.content, 's'+idx)}</div>`;
+    const who = m.role==='user' ? 'You' : 'Agent';
+    d.innerHTML = `<div class="msg-hdr"><span>${who}</span><span>Saved</span></div><div>${m.role==='user'?escHtml(m.content):renderAgentMarkdown(m.content, 's'+idx)}</div>`;
     feed.appendChild(d);
   }
   feed.scrollTop = feed.scrollHeight;
@@ -686,7 +686,7 @@ function renderQuickOpen(){
     const parts = it.path.split('/');
     const name = parts.pop(); const dir = parts.join('/');
     return `<div class="qo-item${i===qoSel?' sel':''}" onclick="closeQuickOpen();openFile(${escJsArg(it.path)})"><span>${escHtml(name)}</span><span class="qo-dir">${escHtml(dir)}</span></div>`;
-  }).join('') : '<div style="padding:12px 14px;color:var(--mut);font-size:12px">Eşleşen dosya yok.</div>';
+  }).join('') : '<div style="padding:12px 14px;color:var(--mut);font-size:12px">No matching files.</div>';
 }
 function onQuickOpenKey(ev){
   if(ev.key==='ArrowDown'){ ev.preventDefault(); qoSel = Math.min(qoItems.length - 1, qoSel + 1); renderQuickOpen(); }
@@ -717,30 +717,30 @@ async function loadGitStatus(renderList=false){
     const hdr = document.getElementById('gitBranchLbl');
     const box = document.getElementById('gitScroll');
     if(!st.is_repo){
-      hdr.textContent = '⎇ Git Yok';
-      box.innerHTML = '<div style="padding:12px;color:var(--mut);font-size:12px">Bu proje henüz bir Git reposu değil.</div>';
+      hdr.textContent = '⎇ No Git';
+      box.innerHTML = '<div style="padding:12px;color:var(--mut);font-size:12px">This project is not a Git repository yet.</div>';
       return;
     }
     const ab = (st.ahead?` ↑${st.ahead}`:'') + (st.behind?` ↓${st.behind}`:'');
     hdr.textContent = `⎇ ${st.branch}${ab}`;
     let html = '';
     if(st.staged.length){
-      html += `<div class="git-sec"><span>Hazır / Staged (${st.staged.length})</span><button class="sm" onclick="gitUnstage('')">- Tümü</button></div>`;
+      html += `<div class="git-sec"><span>Staged (${st.staged.length})</span><button class="sm" onclick="gitUnstage('')">- All</button></div>`;
       html += st.staged.map(f=>`<div class="gfile" onclick="openGitDiff(${escJsArg(f.path)},true)"><span class="gcode A">${escHtml(f.code)}</span><span class="gp" title="${escHtml(f.path)}">${escHtml(f.path)}</span><button class="sm" title="Unstage" onclick="event.stopPropagation();gitUnstage(${escJsArg(f.path)})">-</button></div>`).join('');
     }
     const chg = [...st.unstaged, ...st.untracked];
-    html += `<div class="git-sec"><span>Değişenler (${chg.length})</span></div>`;
+    html += `<div class="git-sec"><span>Changes (${chg.length})</span></div>`;
     if(chg.length){
       html += chg.map(f=>{
         const cls = f.code==='??'?'U':(f.code==='D'?'D':'M');
-        return `<div class="gfile" onclick="openGitDiff(${escJsArg(f.path)},false)"><span class="gcode ${cls}">${escHtml(f.code)}</span><span class="gp" title="${escHtml(f.path)}">${escHtml(f.path)}</span><button class="sm" title="Stage" onclick="event.stopPropagation();gitStage(${escJsArg(f.path)})">+</button><button class="sm danger" title="Geri Al (Revert)" onclick="event.stopPropagation();gitRevert(${escJsArg(f.path)})">↺</button></div>`;
+        return `<div class="gfile" onclick="openGitDiff(${escJsArg(f.path)},false)"><span class="gcode ${cls}">${escHtml(f.code)}</span><span class="gp" title="${escHtml(f.path)}">${escHtml(f.path)}</span><button class="sm" title="Stage" onclick="event.stopPropagation();gitStage(${escJsArg(f.path)})">+</button><button class="sm danger" title="Revert" onclick="event.stopPropagation();gitRevert(${escJsArg(f.path)})">↺</button></div>`;
       }).join('');
     }else{
-      html += '<div style="padding:6px 10px;color:var(--mut);font-size:11.5px">Çalışma dizini temiz ✓</div>';
+      html += '<div style="padding:6px 10px;color:var(--mut);font-size:11.5px">Working tree clean ✓</div>';
     }
     const logs = await fetch('/api/git/log').then(x=>x.json()).catch(()=>[]);
     if(logs && logs.length){
-      html += `<div class="git-sec" style="margin-top:8px"><span>Son Commitler</span></div>`;
+      html += `<div class="git-sec" style="margin-top:8px"><span>Recent Commits</span></div>`;
       html += logs.slice(0, 8).map(l=>`<div class="glog"><b>${escHtml(l.hash)}</b> ${escHtml(l.subject)}<div style="font-size:10px;opacity:.75">${escHtml(l.author)} · ${escHtml(l.when)}</div></div>`).join('');
     }
     box.innerHTML = html;
@@ -759,7 +759,7 @@ function toggleDiffViewMode(){
 }
 
 function renderSplitDiff(rows){
-  if(!rows || !rows.length) return '<div style="padding:16px;color:var(--mut)">Gösterilecek fark yok.</div>';
+  if(!rows || !rows.length) return '<div style="padding:16px;color:var(--mut)">No differences to display.</div>';
   const trs = rows.map(row=>{
     if(row.kind === 'hunk') return `<tr><td colspan="4" class="shunk">${escHtml(row.text)}</td></tr>`;
     if(row.kind === 'meta') return `<tr><td colspan="4" class="smeta">${escHtml(row.text)}</td></tr>`;
@@ -772,7 +772,7 @@ function renderSplitDiff(rows){
 
 async function openMultiFileReview(startPath=''){
   const st = await fetch('/api/git/status').then(x=>x.json()).catch(()=>null);
-  if(!st || !st.is_repo){ alert('Bu proje henüz bir Git reposu değil.'); return; }
+  if(!st || !st.is_repo){ alert('This project is not a Git repository yet.'); return; }
   const seen = new Set();
   reviewFiles = [];
   for(const f of (st.staged||[])){
@@ -783,7 +783,7 @@ async function openMultiFileReview(startPath=''){
     const key = 'W:' + f.path;
     if(!seen.has(key)){ seen.add(key); reviewFiles.push({path:f.path, code:f.code, staged:false}); }
   }
-  if(!reviewFiles.length){ alert('İncelenecek Git değişikliği bulunamadı (çalışma dizini temiz).'); return; }
+  if(!reviewFiles.length){ alert('No Git changes to review (working tree clean).'); return; }
   reviewIdx = startPath ? Math.max(0, reviewFiles.findIndex(x=>x.path===startPath)) : 0;
   const cur = reviewFiles[reviewIdx];
   openGitDiff(cur.path, cur.staged, true);
@@ -799,8 +799,8 @@ function reviewJump(idx){
 function askAiReviewDiff(path, staged){
   switchRightTab('code');
   document.getElementById('agentMode').value = 'plan';
-  const ref = path ? `@${path} dosyasındaki` : 'projedeki';
-  document.getElementById('chatInp').value = `git_diff aracını kullanarak ${ref} ${staged?'staged ':''}değişiklikleri bug, güvenlik ve temiz kod açısından incele; en önemli bulguları listele.`;
+  const ref = path ? `in @${path}` : 'across the workspace';
+  document.getElementById('chatInp').value = `Use git_diff to review the ${staged?'staged ':''}changes ${ref} for bugs, security issues, and code quality; list the top findings.`;
   sendAgent();
 }
 
@@ -818,27 +818,27 @@ async function openGitDiff(path, staged, inReview=false){
       const base = f.path.split('/').pop();
       return `<div class="rpill${i===reviewIdx?' active':''}" title="${escHtml(f.path)}" onclick="reviewJump(${i})"><span class="gcode ${cls}">${escHtml(f.code)}</span><span>${escHtml(base)}</span>${f.staged?'<span style="font-size:9.5px;color:var(--ok)">S</span>':''}</div>`;
     }).join('');
-    reviewBarHtml = `<div class="review-strip"><span style="font-size:11px;color:var(--mut);font-weight:700;white-space:nowrap">📋 İnceleme (${reviewIdx+1}/${reviewFiles.length})</span><button class="sm" onclick="reviewJump(${reviewIdx-1})">◀</button><button class="sm" onclick="reviewJump(${reviewIdx+1})">▶</button>${pills}</div>`;
+    reviewBarHtml = `<div class="review-strip"><span style="font-size:11px;color:var(--mut);font-weight:700;white-space:nowrap">📋 Review (${reviewIdx+1}/${reviewFiles.length})</span><button class="sm" onclick="reviewJump(${reviewIdx-1})">◀</button><button class="sm" onclick="reviewJump(${reviewIdx+1})">▶</button>${pills}</div>`;
   }
-  const modeLbl = diffViewMode === 'split' ? '☰ Tek Sütun' : '◫ Yan Yana';
+  const modeLbl = diffViewMode === 'split' ? '☰ Unified' : '◫ Split';
   const actBtn = path
     ? (staged
       ? `<button class="sm" onclick="gitUnstage(${escJsArg(path)}).then(()=>${inReview?'openMultiFileReview('+escJsArg(path)+')':'openGitDiff('+escJsArg(path)+',false)'})">Unstage</button>`
       : `<button class="sm primary" onclick="gitStage(${escJsArg(path)}).then(()=>${inReview?'openMultiFileReview('+escJsArg(path)+')':'openGitDiff('+escJsArg(path)+',true)'})">Stage (+)</button><button class="sm danger" onclick="gitRevert(${escJsArg(path)}).then(()=>${inReview?'openMultiFileReview()':'closeCenterOverlays()'})">↺</button>`)
-      + `<button class="sm" onclick="openFile(${escJsArg(path)})">Dosyayı Aç</button>`
+      + `<button class="sm" onclick="openFile(${escJsArg(path)})">Open File</button>`
     : '';
   const bodyHtml = (diffViewMode === 'split' && r.split_rows && r.split_rows.length)
     ? renderSplitDiff(r.split_rows)
     : ((r.lines && r.lines.length)
       ? r.lines.map(ln=>`<div class="dln ${ln.type}">${escHtml(ln.text)||' '}</div>`).join('')
-      : '<div style="padding:16px;color:var(--mut)">Gösterilecek fark yok.</div>');
-  dv.innerHTML = `${reviewBarHtml}<div class="diff-hdr"><b>${escHtml(r.path||path)}</b><span class="pill">${staged?'Staged':'Working Tree'}</span><span style="color:var(--ok);font-weight:700">+${r.added||0}</span><span style="color:var(--err);font-weight:700">-${r.removed||0}</span><div style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap"><button class="sm" onclick="toggleDiffViewMode()">${modeLbl}</button><button class="sm" onclick="askAiReviewDiff(${escJsArg(path)},${staged?1:0})">✨ AI İncele</button>${actBtn}<button class="sm" onclick="closeCenterOverlays()">Editöre Dön</button></div></div><div class="diff-body">${bodyHtml}</div>`;
+      : '<div style="padding:16px;color:var(--mut)">No differences to display.</div>');
+  dv.innerHTML = `${reviewBarHtml}<div class="diff-hdr"><b>${escHtml(r.path||path)}</b><span class="pill">${staged?'Staged':'Working Tree'}</span><span style="color:var(--ok);font-weight:700">+${r.added||0}</span><span style="color:var(--err);font-weight:700">-${r.removed||0}</span><div style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap"><button class="sm" onclick="toggleDiffViewMode()">${modeLbl}</button><button class="sm" onclick="askAiReviewDiff(${escJsArg(path)},${staged?1:0})">✨ AI Review</button>${actBtn}<button class="sm" onclick="closeCenterOverlays()">Back to Editor</button></div></div><div class="diff-body">${bodyHtml}</div>`;
 }
 async function gitStage(path){ await fetch('/api/git/stage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})}); await loadGitStatus(true); }
 async function gitStageAll(){ await fetch('/api/git/stage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:''})}); await loadGitStatus(true); }
 async function gitUnstage(path){ await fetch('/api/git/unstage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})}); await loadGitStatus(true); }
 async function gitRevert(path){
-  if(!confirm(path + ' dosyasındaki değişiklikleri geri almak istiyor musunuz?')) return false;
+  if(!confirm('Revert all uncommitted changes in ' + path + '?')) return false;
   const r = await fetch('/api/git/revert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
   if(r.ok){
     if(openTabs[path]){ delete openTabs[path]; openFile(path); }
@@ -850,11 +850,11 @@ async function gitRevert(path){
 async function gitCommit(){
   const inp = document.getElementById('gitCommitMsg');
   const msg = inp.value.trim();
-  if(!msg){ alert('Önce bir commit mesajı yazın.'); return; }
+  if(!msg){ alert('Enter a commit message first.'); return; }
   const r = await fetch('/api/git/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
   const j = await r.json();
   if(r.ok && j.ok){ inp.value = ''; await loadGitStatus(true); }
-  else alert(j.error || 'Commit başarısız (önce dosyaları + ile stage edin).');
+  else alert(j.error || 'Commit failed (stage files with + first).');
 }
 async function gitAiMessage(){
   const btn = document.getElementById('gitAiBtn');
@@ -863,7 +863,7 @@ async function gitAiMessage(){
     const r = await fetch('/api/git/ai-message',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     const j = await r.json();
     if(r.ok && j.message) document.getElementById('gitCommitMsg').value = j.message;
-    else alert(j.error || 'Commit mesajı üretilemedi.');
+    else alert(j.error || 'Could not generate commit message.');
   }finally{ btn.disabled = false; btn.textContent = '✨ AI'; }
 }
 function closeCenterOverlays(){
@@ -886,13 +886,13 @@ async function loadProjects(){
 }
 
 async function switchProject(path){
-  if(hasDirtyTabs() && !confirm('Kaydedilmemiş değişiklikler var. Yine de proje değiştirilsin mi?')){
+  if(hasDirtyTabs() && !confirm('You have unsaved changes. Switch project anyway?')){
     loadProjects(); return;
   }
   await fetch('/api/workspace/select',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
   for(const k of Object.keys(openTabs)) delete openTabs[k];
   activeTab = null; editor.value = ''; updateGutter(); renderTabs();
-  document.getElementById('activeFileLbl').textContent = 'Dosya seçilmedi';
+  document.getElementById('activeFileLbl').textContent = 'No file selected';
   closeCenterOverlays(); renderDiagnostics([]); newChatSession(); loadTree(); pollTerminal(); loadGitStatus(true);
 }
 
@@ -903,8 +903,8 @@ async function loadCodingModels(){
   for(const m of (inv.coding_models||[])){
     const o = document.createElement('option');
     o.value = m.id;
-    const tag = m.id==='qwen3-coder-30b' ? '🚀 30B/3B MoE · Kod' : (m.id==='inkling2-mini' ? '🧠 Derin+Vision' : '⚡ 7B GPU');
-    o.textContent = `${m.id} (${tag})${m.installed?'':' [Eksik]'}`;
+    const tag = m.id==='qwen3-coder-30b' ? '🚀 30B/3B MoE · Code' : (m.id==='inkling2-mini' ? '🧠 Deep+Vision' : '⚡ 7B GPU');
+    o.textContent = `${m.id} (${tag})${m.installed?'':' [Missing]'}`;
     o.disabled = !m.installed;
     if(lastStatus && lastStatus.coding_model===m.id) o.selected = true;
     sel.appendChild(o);
@@ -918,7 +918,7 @@ async function switchCodingModel(modelId){
     body:JSON.stringify({model: modelId})
   });
   const j = await r.json();
-  if(!r.ok) alert(j.message||j.error||'Model baslatilamadi');
+  if(!r.ok) alert(j.message||j.error||'Failed to start model');
   pollStatus();
 }
 
@@ -942,7 +942,7 @@ async function loadTree(){
       div.textContent = (isCol ? '▸ ' : '▾ ') + it.name;
       div.onclick = ()=>{ isCol ? collapsedDirs.delete(it.path) : collapsedDirs.add(it.path); loadTree(); };
     }else{
-      div.innerHTML = `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escHtml(it.name)}</span><span class="x" title="Sil" style="opacity:.45;font-size:11px;padding:0 4px" onclick="event.stopPropagation();deleteWorkspaceFile(${escJsArg(it.path)})">×</span>`;
+      div.innerHTML = `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escHtml(it.name)}</span><span class="x" title="Delete" style="opacity:.45;font-size:11px;padding:0 4px" onclick="event.stopPropagation();deleteWorkspaceFile(${escJsArg(it.path)})">×</span>`;
       div.onclick = ()=>openFile(it.path);
     }
     box.appendChild(div);
@@ -950,7 +950,7 @@ async function loadTree(){
 }
 
 async function deleteWorkspaceFile(path){
-  if(!confirm(path + ' dosyasını silmek istiyor musunuz?')) return;
+  if(!confirm('Delete ' + path + '?')) return;
   const r = await fetch('/api/workspace/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
   if(r.ok){ closeTab(path); loadTree(); }
 }
@@ -960,7 +960,7 @@ async function openFile(path){
   if(!openTabs[path]){
     const r = await fetch('/api/workspace/file?path='+encodeURIComponent(path));
     const j = await r.json();
-    if(!r.ok){ alert(j.error||'Acilamadi'); return; }
+    if(!r.ok){ alert(j.error||'Failed to open file'); return; }
     openTabs[path] = {content: j.content, saved: j.content};
   }
   activeTab = path;
@@ -988,7 +988,7 @@ function closeTab(p){
     const keys = Object.keys(openTabs);
     activeTab = keys.length ? keys[0] : null;
     editor.value = activeTab ? openTabs[activeTab].content : '';
-    document.getElementById('activeFileLbl').textContent = activeTab || 'Dosya seçilmedi';
+    document.getElementById('activeFileLbl').textContent = activeTab || 'No file selected';
     updateGutter();
   }
   renderTabs();
@@ -1009,26 +1009,26 @@ async function saveActiveFile(){
 }
 
 async function newProjectPrompt(){
-  const p = prompt('Yeni proje adı veya tam klasör yolu (örnek: araban veya C:\\Users\\ROBONENTA\\Desktop\\Projects\\araban):');
+  const p = prompt('New project name or folder path (e.g. my-app):');
   if(!p || !p.trim()) return;
   const r = await fetch('/api/workspace/create-project',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({path:p.trim()})
   });
   const j = await r.json();
-  if(!r.ok){ alert(j.error||'Proje oluşturulamadı'); return; }
+  if(!r.ok){ alert(j.error||'Failed to create project'); return; }
   for(const k of Object.keys(openTabs)) delete openTabs[k];
   activeTab = null; editor.value = ''; updateGutter(); renderTabs();
-  document.getElementById('activeFileLbl').textContent = 'Dosya seçilmedi';
+  document.getElementById('activeFileLbl').textContent = 'No file selected';
   await loadProjects(); await loadTree(); pollTerminal(); loadGitStatus(true);
 }
 
 async function newFilePrompt(){
-  const p = prompt('Aktif proje içinde yeni dosya adı/yolu (örnek: main.py veya src/app.py):');
+  const p = prompt('New file path inside active project (e.g. main.py or src/app.py):');
   if(!p || !p.trim()) return;
   const r = await fetch('/api/workspace/file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p.trim(), content:''})});
   const j = await r.json();
-  if(!r.ok){ alert(j.error||'Dosya oluşturulamadı'); return; }
+  if(!r.ok){ alert(j.error||'Failed to create file'); return; }
   await loadTree(); openFile(j.path || p.trim());
 }
 
@@ -1038,7 +1038,7 @@ async function searchProject(){
   if(!q){ box.style.display='none'; return; }
   const r = await fetch('/api/workspace/search?q='+encodeURIComponent(q)).then(x=>x.json());
   box.style.display = 'block';
-  box.innerHTML = r.hits.length ? r.hits.map(h=>`<div class="hit" onclick="openFileAtLine(${escJsArg(h.path)},${h.line})"><b>${escHtml(h.path)}:${h.line}</b><div style="color:var(--mut)">${escHtml(h.text)}</div></div>`).join('') : '<div class="hit">Sonuç bulunamadı</div>';
+  box.innerHTML = r.hits.length ? r.hits.map(h=>`<div class="hit" onclick="openFileAtLine(${escJsArg(h.path)},${h.line})"><b>${escHtml(h.path)}:${h.line}</b><div style="color:var(--mut)">${escHtml(h.text)}</div></div>`).join('') : '<div class="hit">No results found</div>';
 }
 
 async function openFileAtLine(path, line){
@@ -1055,14 +1055,14 @@ function toggleProjReplace(){
 async function replaceInProject(){
   const q = document.getElementById('searchInp').value;
   const rep = document.getElementById('projReplaceInp').value;
-  if(!q){ alert('Önce aranacak metni yazın.'); return; }
+  if(!q){ alert('Enter text to search for first.'); return; }
   const prev = await fetch('/api/workspace/replace',{
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({query:q, replacement:rep, dry_run:true})
   }).then(x=>x.json());
-  if(!prev.ok || !prev.total_replacements){ alert('Eşleşme bulunamadı.'); return; }
+  if(!prev.ok || !prev.total_replacements){ alert('No matches found.'); return; }
   const summary = prev.files.slice(0,8).map(f=>`${f.path} (${f.count})`).join('\n');
-  if(!confirm(`${prev.files.length} dosyada toplam ${prev.total_replacements} eşleşme değiştirilecek:\n\n${summary}\n\nDevam edilsin mi?`)) return;
+  if(!confirm(`Replace ${prev.total_replacements} occurrences across ${prev.files.length} files?\n\n${summary}\n\nContinue?`)) return;
   const res = await fetch('/api/workspace/replace',{
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({query:q, replacement:rep, dry_run:false})
@@ -1072,7 +1072,7 @@ async function replaceInProject(){
       if(openTabs[f.path]){ delete openTabs[f.path]; if(activeTab===f.path) openFile(f.path); }
     }
     searchProject(); loadGitStatus(false);
-    alert(`✓ ${res.files.length} dosyada ${res.total_replacements} değişiklik uygulandı.`);
+    alert(`✓ Applied ${res.total_replacements} replacements across ${res.files.length} files.`);
   }
 }
 
@@ -1108,7 +1108,7 @@ async function renderSymbolPalette(){
   if(symSel >= symItems.length) symSel = 0;
   document.getElementById('symList').innerHTML = symItems.length ? symItems.slice(0,30).map((s,i)=>
     `<div class="qo-item${i===symSel?' sel':''}" onclick="jumpSymbolIdx(${i})"><span><span class="sym-kind">${escHtml(s.kind)}</span>${escHtml(s.name)}</span><span class="qo-dir">${escHtml(s.path||'')}:${s.line}</span></div>`
-  ).join('') : '<div style="padding:12px 14px;color:var(--mut);font-size:12px">Sembol bulunamadı (tüm proje için # ile arayın).</div>';
+  ).join('') : '<div style="padding:12px 14px;color:var(--mut);font-size:12px">No symbols found (prefix with # to search the whole project).</div>';
 }
 async function jumpSymbolIdx(i){
   const s = symItems[i]; closeSymbolPalette();
@@ -1152,12 +1152,12 @@ async function gotoDefinitionAtCursor(){
 let pendingFimText = '';
 let pendingFimPos = 0;
 async function triggerFimComplete(){
-  if(!activeTab){ alert('Önce bir dosya açın.'); return; }
+  if(!activeTab){ alert('Open a file first.'); return; }
   const pos = editor.selectionStart || 0;
   pendingFimPos = pos; pendingFimText = '';
   const bar = document.getElementById('fimBar');
   bar.style.display = 'flex';
-  document.getElementById('fimStatus').textContent = 'Yerel AI imleç için tamamlama üretiyor...';
+  document.getElementById('fimStatus').textContent = 'Generating local AI completion at cursor...';
   document.getElementById('fimCode').textContent = '...';
   try{
     const r = await fetch('/api/editor/complete',{
@@ -1170,15 +1170,15 @@ async function triggerFimComplete(){
     });
     const j = await r.json();
     if(!r.ok || !j.completion){
-      document.getElementById('fimStatus').textContent = j.error || 'Tamamlama üretilemedi.';
+      document.getElementById('fimStatus').textContent = j.error || 'No completion returned.';
       document.getElementById('fimCode').textContent = '';
       return;
     }
     pendingFimText = j.completion;
-    document.getElementById('fimStatus').textContent = 'Hazır — Tab veya ✓ Kabul ile ekleyin';
+    document.getElementById('fimStatus').textContent = 'Ready — press Tab or click ✓ Accept to insert';
     document.getElementById('fimCode').textContent = pendingFimText;
   }catch(e){
-    document.getElementById('fimStatus').textContent = 'Hata: ' + e;
+    document.getElementById('fimStatus').textContent = 'Error: ' + e;
   }
 }
 function acceptFim(){
@@ -1193,12 +1193,12 @@ function hideFim(){
 }
 
 const QUICK_CHIP_PROMPTS = {
-  '/review': 'Aktif dosyayı güvenlik, performans ve okunabilirlik açısından incele, en önemli 3 iyileştirmeyi listele.',
-  '/bug': 'Aktif dosyadaki olası bug ve kenar durum hatalarını tespit edip düzelt.',
-  '/test': 'Aktif dosya için kapsamlı unittest birim testleri yaz ve çalıştır.',
-  '/refactor': 'Aktif dosyayı daha temiz, modüler ve okunabilir olacak şekilde refactor et.',
-  '/doc': 'Aktif dosyadaki fonksiyon ve sınıflara kısa, net docstring ve tip anotasyonları ekle.',
-  '/plan': 'Bu değişiklik için önce çok dosyalı bir uygulama planı hazırla: ',
+  '/review': 'Review the active file for security, performance, and maintainability, and list the top 3 concrete improvements.',
+  '/bug': 'Find and fix potential bugs and edge-case errors in the active file.',
+  '/test': 'Write comprehensive unit tests for the active file and run them.',
+  '/refactor': 'Refactor the active file to be cleaner, more modular, and easier to read.',
+  '/doc': 'Add concise, clear docstrings and type annotations to functions and classes in the active file.',
+  '/plan': 'Draft a step-by-step multi-file implementation plan first for: ',
 };
 function useQuickChip(cmd){
   const inp = document.getElementById('chatInp');
@@ -1300,9 +1300,9 @@ function detectTerminalError(recent){
   const clean = recent.map(stripAnsi);
   // If the latest command finished cleanly with exit code 0, suppress stale error banners
   for(let i = clean.length - 1; i >= Math.max(0, clean.length - 4); i--){
-    if(/\[çıkış kodu:\s*0\]/i.test(clean[i])) return null;
+    if(/\[(?:exit code|çıkış kodu):\s*0\]/i.test(clean[i])) return null;
   }
-  const errRe = /(Traceback \(most recent call last\):|\b(?:SyntaxError|NameError|TypeError|ValueError|AttributeError|ImportError|ModuleNotFoundError|AssertionError|KeyError|IndexError|ZeroDivisionError|RuntimeError|ReferenceError|RangeError):[^\n]*|^FAIL:\s+\S+|^ERROR:\s+\S+|FAILED \(|exit_code=[1-9]\d*|\[exit [1-9]\d*\]|\[çıkış kodu:\s*[1-9]\d*\])/i;
+  const errRe = /(Traceback \(most recent call last\):|\b(?:SyntaxError|NameError|TypeError|ValueError|AttributeError|ImportError|ModuleNotFoundError|AssertionError|KeyError|IndexError|ZeroDivisionError|RuntimeError|ReferenceError|RangeError):[^\n]*|^FAIL:\s+\S+|^ERROR:\s+\S+|FAILED \(|exit_code=[1-9]\d*|\[exit [1-9]\d*\]|\[(?:exit code|çıkış kodu):\s*[1-9]\d*\])/i;
   let lastHitIdx = -1;
   let headline = '';
   for(let i = clean.length - 1; i >= 0; i--){
@@ -1337,9 +1337,9 @@ function renderTermErrBanner(){
     ? `<button class="sm" onclick="jumpFromTerm(${escJsArg(detectedTermErr.file)},${detectedTermErr.line})">📄 ${escHtml(detectedTermErr.file.split('/').pop())}:${detectedTermErr.line}</button>`
     : '';
   const rerunBtn = lastTermCommand
-    ? `<button class="sm" onclick="runTerm(${escJsArg(lastTermCommand)})">↻ Tekrar Koş</button>`
+    ? `<button class="sm" onclick="runTerm(${escJsArg(lastTermCommand)})">↻ Re-run</button>`
     : '';
-  bar.innerHTML = `<span style="font-weight:700">⚠ Hata Yakalandı</span><span class="err-msg" title="${escHtml(detectedTermErr.headline)}">${escHtml(detectedTermErr.headline)}</span>${locBtn}<button class="sm primary" onclick="autoFixTerminalError()">🔧 Ajan v3 ile Düzelt</button>${rerunBtn}<button class="sm" onclick="dismissTermErr()">×</button>`;
+  bar.innerHTML = `<span style="font-weight:700">⚠ Error Detected</span><span class="err-msg" title="${escHtml(detectedTermErr.headline)}">${escHtml(detectedTermErr.headline)}</span>${locBtn}<button class="sm primary" onclick="autoFixTerminalError()">🔧 Fix with Agent v3</button>${rerunBtn}<button class="sm" onclick="dismissTermErr()">×</button>`;
 }
 
 function dismissTermErr(){
@@ -1350,7 +1350,7 @@ function dismissTermErr(){
 function autoFixTerminalError(){
   const err = detectedTermErr;
   const txt = err ? err.snippet : document.getElementById('termOut').innerText.slice(-1800);
-  if(!txt.trim()){ alert('Terminalde analiz edilecek çıktı bulunamadı.'); return; }
+  if(!txt.trim()){ alert('No terminal output available to analyze.'); return; }
   let atRef = '';
   if(err && err.file){
     let rel = err.file;
@@ -1362,7 +1362,7 @@ function autoFixTerminalError(){
   document.getElementById('agentMode').value = 'agent';
   const chk = document.getElementById('chkAutoVerify');
   if(chk) chk.checked = true;
-  document.getElementById('chatInp').value = `${atRef}Terminaldeki şu hatayı tespit edip doğrudan düzelt ve testle doğrula:\n\n\`\`\`\n${txt}\n\`\`\``;
+  document.getElementById('chatInp').value = `${atRef}Diagnose and fix this terminal error directly, then verify with tests:\n\n\`\`\`\n${txt}\n\`\`\``;
   sendAgent();
 }
 
@@ -1384,7 +1384,7 @@ function appendTermLines(lines, reset=false){
   if(!reset && lines && lines.length){
     const found = detectTerminalError(termRecentLines);
     if(found){ detectedTermErr = found; renderTermErrBanner(); }
-    else if(lines.some(l=>/\[çıkış kodu:\s*0\]/i.test(stripAnsi(l)))){ dismissTermErr(); }
+    else if(lines.some(l=>/\[(?:exit code|çıkış kodu):\s*0\]/i.test(stripAnsi(l)))){ dismissTermErr(); }
   }
 }
 
@@ -1395,12 +1395,12 @@ function setTermRunningState(running){
   const btn = document.getElementById('termRunBtn');
   if(termRunning){
     tag.textContent = 'stdin>'; tag.className = 'prompt-tag stdin';
-    inp.placeholder = 'Çalışan işleme girdi gönderin (y/n veya metin + Enter)...';
-    btn.textContent = 'Gönder';
+    inp.placeholder = 'Send input to running process (y/n or text + Enter)...';
+    btn.textContent = 'Send';
   }else{
     tag.textContent = 'PS>'; tag.className = 'prompt-tag';
-    inp.placeholder = 'Komut yazın (↑↓ geçmiş · Tab tamamla · ? ile Türkçe AI komut)...';
-    btn.textContent = 'Çalıştır';
+    inp.placeholder = 'Enter command (↑↓ history · Tab complete · ? for natural-language AI command)...';
+    btn.textContent = 'Run';
   }
 }
 
@@ -1542,7 +1542,7 @@ function applyCompletion(choice){
 async function requestNlCmd(query){
   const bar = document.getElementById('nlCmdBar');
   bar.style.display = 'flex';
-  document.getElementById('nlCmdCode').textContent = 'AI çeviriyor...';
+  document.getElementById('nlCmdCode').textContent = 'Translating with AI...';
   document.getElementById('nlCmdDesc').textContent = query;
   pendingNlCmd = '';
   const r = await fetch('/api/terminal/nl2cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:activeTermId, query})});
@@ -1552,8 +1552,8 @@ async function requestNlCmd(query){
     document.getElementById('nlCmdCode').textContent = j.command;
     document.getElementById('nlCmdDesc').textContent = j.explanation || '';
   }else{
-    document.getElementById('nlCmdCode').textContent = 'Hata';
-    document.getElementById('nlCmdDesc').textContent = j.error || 'Çevrilemedi';
+    document.getElementById('nlCmdCode').textContent = 'Error';
+    document.getElementById('nlCmdDesc').textContent = j.error || 'Could not translate command';
   }
 }
 function acceptNlCmd(execNow){
@@ -1574,7 +1574,7 @@ function sendTermErrorToAi(){
   if(detectedTermErr){ autoFixTerminalError(); return; }
   const txt = document.getElementById('termOut').innerText.slice(-1800);
   switchRightTab('code');
-  document.getElementById('chatInp').value = "Terminaldeki şu hatayı analiz et ve düzeltilmiş kodu ver:\n\n```\n" + txt + "\n```";
+  document.getElementById('chatInp').value = "Analyze this terminal error and provide the fixed code:\n\n```\n" + txt + "\n```";
   document.getElementById('chatInp').focus();
 }
 
@@ -1635,10 +1635,10 @@ async function pollStatus(){
     lastStatus = st;
     const p = document.getElementById('gpuOwnerPill');
     const btn = document.getElementById('llmBtn');
-    if(st.owner==='coding'){ p.className='pill ok'; p.textContent='GPU: KOD · '+st.coding_model; btn.textContent='Kodlama AI Durdur'; }
-    else if(st.owner==='coding_starting'){ p.className='pill warn'; p.textContent='GPU: Yükleniyor...'; btn.textContent='Yükleniyor...'; }
-    else if(st.owner==='media'){ p.className='pill vid'; p.textContent='GPU: VIDEO · '+(st.media_job?.engine||'5b').toUpperCase(); btn.textContent='Kodlama AI Başlat'; }
-    else { p.className='pill'; p.textContent='GPU: Boşta'; btn.textContent='Kodlama AI Başlat'; }
+    if(st.owner==='coding'){ p.className='pill ok'; p.textContent='GPU: CODE · '+st.coding_model; btn.textContent='Stop Coding AI'; }
+    else if(st.owner==='coding_starting'){ p.className='pill warn'; p.textContent='GPU: Loading...'; btn.textContent='Loading...'; }
+    else if(st.owner==='media'){ p.className='pill vid'; p.textContent='GPU: VIDEO · '+(st.media_job?.engine||'ltx23').toUpperCase(); btn.textContent='Start Coding AI'; }
+    else { p.className='pill'; p.textContent='GPU: Idle'; btn.textContent='Start Coding AI'; }
 
     const hw = st.hardware||{};
     const msel = document.getElementById('modelSel');
@@ -1675,7 +1675,7 @@ function onChatImg(ev){
 }
 function clearChat(){ chatHistory=[]; document.getElementById('chatFeed').innerHTML=''; }
 function askAiAboutFile(prefix){
-  if(!activeTab){ alert('Once soldan bir dosya acin.'); return; }
+  if(!activeTab){ alert('Open a file from the left pane first.'); return; }
   switchRightTab('code');
   document.getElementById('chkIncludeFile').checked = true;
   document.getElementById('chatInp').value = prefix;
@@ -1698,9 +1698,9 @@ function renderAgentMarkdown(txt, msgKey='m0'){
       codeBlockStore[id] = code;
       const isShell = /^(sh|bash|powershell|ps1|cmd)$/i.test(lang);
       const actBtn = isShell
-        ? `<button class="sm primary" onclick="if(confirm('Bu kabuk komutunu terminalde calistirmak istiyor musunuz?\\n\\n'+codeBlockStore['${id}']))runTerm(codeBlockStore['${id}'])">Terminalde Çalıştır</button>`
-        : `<button class="sm primary" onclick="applyCodeToEditor('${id}')">Editöre Uygula</button>`;
-      html += `<div class="code-blk"><div class="code-blk-h"><span>${escHtml(lang)}</span><div class="row" style="gap:4px">${actBtn}<button class="sm" onclick="navigator.clipboard.writeText(codeBlockStore['${id}'])">Kopyala</button></div></div><pre>${escHtml(code)}</pre></div>`;
+        ? `<button class="sm primary" onclick="if(confirm('Run this shell command in the terminal?\\n\\n'+codeBlockStore['${id}']))runTerm(codeBlockStore['${id}'])">Run in Terminal</button>`
+        : `<button class="sm primary" onclick="applyCodeToEditor('${id}')">Apply to Editor</button>`;
+      html += `<div class="code-blk"><div class="code-blk-h"><span>${escHtml(lang)}</span><div class="row" style="gap:4px">${actBtn}<button class="sm" onclick="navigator.clipboard.writeText(codeBlockStore['${id}'])">Copy</button></div></div><pre>${escHtml(code)}</pre></div>`;
     }
   }
   return html;
@@ -1709,7 +1709,7 @@ function renderAgentMarkdown(txt, msgKey='m0'){
 function applyCodeToEditor(id){
   const code = codeBlockStore[id]; if(!code) return;
   if(!activeTab){
-    const p = prompt('Kodu hangi dosyaya kaydedelim? (ornek: yeni_dosya.py)');
+    const p = prompt('Save code to which file? (e.g. new_file.py)');
     if(!p) return;
     openTabs[p] = {content: code, saved: ''};
     activeTab = p;
@@ -1737,19 +1737,19 @@ async function undoAgentEdit(undoId, btnEl){
   });
   const j = await r.json();
   if(r.ok){
-    btnEl.textContent = 'Geri Alındı'; btnEl.disabled = true;
+    btnEl.textContent = 'Reverted'; btnEl.disabled = true;
     loadTree(); loadGitStatus(false);
     if(j.deleted){ closeTab(j.path); }
     else if(openTabs[j.path]){ delete openTabs[j.path]; openFile(j.path); }
   }else{
-    alert(j.error||'Geri alinamadi');
+    alert(j.error||'Failed to undo');
   }
 }
 
 async function undoTurnCheckpoint(cpId, btnEl){
   const ids = turnCheckpointStore[cpId];
   if(!ids || !ids.length) return;
-  if(!confirm(`Bu turdaki ${ids.length} dosya değişikliğini topluca geri almak istiyor musunuz?`)) return;
+  if(!confirm(`Revert all ${ids.length} file edit(s) from this turn?`)) return;
   btnEl.disabled = true;
   try{
     const r = await fetch('/api/workspace/undo-batch',{
@@ -1758,7 +1758,7 @@ async function undoTurnCheckpoint(cpId, btnEl){
     });
     const j = await r.json();
     if(r.ok && j.ok){
-      btnEl.textContent = `✓ Tur Geri Alındı (${j.count})`;
+      btnEl.textContent = `✓ Turn Reverted (${j.count})`;
       delete turnCheckpointStore[cpId];
       loadTree(); loadGitStatus(false);
       for(const dp of (j.deleted_paths||[])){ closeTab(dp); }
@@ -1767,11 +1767,11 @@ async function undoTurnCheckpoint(cpId, btnEl){
       }
     }else{
       btnEl.disabled = false;
-      alert(j.error||'Tur geri alinamadi');
+      alert(j.error||'Failed to revert turn');
     }
   }catch(e){
     btnEl.disabled = false;
-    alert('Hata: ' + e);
+    alert('Error: ' + e);
   }
 }
 
@@ -1784,7 +1784,7 @@ function updateAgentCtxPill(ev){
   const kStr = toks >= 1000 ? (toks / 1000).toFixed(1) + 'k' : String(toks);
   el.textContent = `ctx: ${kStr} (${pct}%)${ev.compacted ? ' ⚡' : ''}`;
   el.className = 'pill' + (pct >= 85 ? ' err' : (pct >= 65 ? ' warn' : ''));
-  el.title = `Adım ${ev.step||1}/${ev.max_steps||16} · ~${toks} / ${lim} tok${ev.compacted ? ' (eski araç çıktıları sıkıştırıldı)' : ''}`;
+  el.title = `Step ${ev.step||1}/${ev.max_steps||16} · ~${toks} / ${lim} tok${ev.compacted ? ' (older tool outputs compacted)' : ''}`;
 }
 
 async function sendAgent(){
@@ -1796,20 +1796,20 @@ async function sendAgent(){
 
   let uContent = text;
   if(chatImgData){
-    uContent = [{type:'text',text:text||'Bu ekran goruntusunu incele.'},{type:'image_url',image_url:{url:chatImgData}}];
+    uContent = [{type:'text',text:text||'Inspect this screenshot.'},{type:'image_url',image_url:{url:chatImgData}}];
     chatImgData = null; document.getElementById('chatImg').value=''; document.getElementById('chatImgTag').style.display='none';
   }
   chatHistory.push({role:'user', content:uContent});
 
   const uDiv = document.createElement('div');
   uDiv.className='msg user';
-  uDiv.innerHTML=`<div class="msg-hdr"><span>Sen</span><span>${activeTab?escHtml(activeTab):'Proje'}</span></div><div>${escHtml(text)}</div>`;
+  uDiv.innerHTML=`<div class="msg-hdr"><span>You</span><span>${activeTab?escHtml(activeTab):'Project'}</span></div><div>${escHtml(text)}</div>`;
   feed.appendChild(uDiv);
 
   const activeModelName = document.getElementById('modelSel')?.value || 'AI';
   const aDiv = document.createElement('div');
   aDiv.className='msg';
-  aDiv.innerHTML=`<div class="msg-hdr"><span>${escHtml(activeModelName)}</span><span class="st">Proje taranıyor...</span></div><div class="tools" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div><div class="bd">...</div>`;
+  aDiv.innerHTML=`<div class="msg-hdr"><span>${escHtml(activeModelName)}</span><span class="st">Scanning project...</span></div><div class="tools" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div><div class="bd">...</div>`;
   feed.appendChild(aDiv);
   feed.scrollTop = feed.scrollHeight;
 
@@ -1839,7 +1839,7 @@ async function sendAgent(){
     });
     if(!resp.ok){
       const err = await resp.json().catch(()=>({error:resp.statusText}));
-      aDiv.querySelector('.bd').textContent = 'Hata: ' + (err.error||resp.status);
+      aDiv.querySelector('.bd').textContent = 'Error: ' + (err.error||resp.status);
       chatHistory.pop();
       return;
     }
@@ -1880,8 +1880,8 @@ async function sendAgent(){
             const dc = document.createElement('div');
             dc.className = 'code-blk';
             const ico = ev.deleted ? '🗑' : '✏';
-            const openBtn = ev.deleted ? '' : `<button class="sm" onclick="openFile(${escJsArg(ev.path)})">Aç</button>`;
-            dc.innerHTML = `<div class="code-blk-h"><span>${ico} ${escHtml(ev.path)} <b style="color:var(--ok)">+${ev.added||0}</b> <b style="color:var(--err)">-${ev.removed||0}</b></span><div class="row" style="gap:4px">${openBtn}${ev.undo_id?`<button class="sm danger" onclick="undoAgentEdit(${escJsArg(ev.undo_id)},this)">Geri Al</button>`:''}</div></div>${ev.diff?`<pre style="max-height:110px;font-size:10.8px">${escHtml(ev.diff)}</pre>`:''}`;
+            const openBtn = ev.deleted ? '' : `<button class="sm" onclick="openFile(${escJsArg(ev.path)})">Open</button>`;
+            dc.innerHTML = `<div class="code-blk-h"><span>${ico} ${escHtml(ev.path)} <b style="color:var(--ok)">+${ev.added||0}</b> <b style="color:var(--err)">-${ev.removed||0}</b></span><div class="row" style="gap:4px">${openBtn}${ev.undo_id?`<button class="sm danger" onclick="undoAgentEdit(${escJsArg(ev.undo_id)},this)">Undo</button>`:''}</div></div>${ev.diff?`<pre style="max-height:110px;font-size:10.8px">${escHtml(ev.diff)}</pre>`:''}`;
             toolsEl.appendChild(dc);
           }else if(ev.type==='turn_checkpoint'){
             const cpId = 'cp_' + Math.random().toString(36).slice(2, 9);
@@ -1891,20 +1891,20 @@ async function sendAgent(){
             const cpc = document.createElement('div');
             cpc.className = 'row';
             cpc.style.cssText = 'margin-top:8px;padding-top:6px;border-top:1px solid var(--b);justify-content:space-between;font-size:11.5px;color:var(--mut)';
-            cpc.innerHTML = `<span>📌 Tur Kayıt Noktası: ${nFiles} dosya · ${nEdits} değişiklik</span><button class="sm danger" onclick="undoTurnCheckpoint(${escJsArg(cpId)},this)">↺ Tüm Turu Geri Al</button>`;
+            cpc.innerHTML = `<span>📌 Turn Checkpoint: ${nFiles} file(s) · ${nEdits} edit(s)</span><button class="sm danger" onclick="undoTurnCheckpoint(${escJsArg(cpId)},this)">↺ Undo Full Turn</button>`;
             aDiv.appendChild(cpc);
           }else if(ev.type==='verify'){
             const vc = document.createElement('div');
             vc.className = 'verify-card ' + (ev.passed ? 'ok' : 'fail');
             const ttl = ev.passed
-              ? `✓ Oto-Test Geçti (Tur ${ev.round||1}) · ${ev.command}`
-              : `✗ Oto-Test Başarısız (exit ${ev.exit_code}) · Ajan düzeltiyor (Tur ${ev.round||1})`;
+              ? `✓ Auto-Test Passed (Round ${ev.round||1}) · ${ev.command}`
+              : `✗ Auto-Test Failed (exit ${ev.exit_code}) · Agent self-healing (Round ${ev.round||1})`;
             vc.innerHTML = `<div class="vh"><span>${escHtml(ttl)}</span></div>${ev.output?`<pre>${escHtml(ev.output.slice(-900))}</pre>`:''}`;
             toolsEl.appendChild(vc);
           }else if(ev.type==='plan_ready'){
             const pc = document.createElement('div');
             pc.className = 'plan-card';
-            pc.innerHTML = `<div style="font-size:11.5px;color:var(--acc);font-weight:700">📋 Plan Hazır — Onay Bekliyor</div><div style="font-size:11.5px;color:var(--mut)">Onayladığınızda ajan planı çok dosyalı olarak uygular ve proje testlerini otomatik çalıştırır.</div><div class="row" style="gap:6px"><button class="sm primary" onclick="approvePlanAndRun(this)">✓ Planı Onayla ve Uygula (Oto-Test)</button><button class="sm danger" onclick="this.closest('.plan-card').remove()">İptal</button></div>`;
+            pc.innerHTML = `<div style="font-size:11.5px;color:var(--acc);font-weight:700">📋 Plan Ready — Awaiting Approval</div><div style="font-size:11.5px;color:var(--mut)">Once approved, the agent applies the multi-file plan and runs workspace tests automatically.</div><div class="row" style="gap:6px"><button class="sm primary" onclick="approvePlanAndRun(this)">✓ Approve &amp; Apply Plan (Auto-Test)</button><button class="sm danger" onclick="this.closest('.plan-card').remove()">Cancel</button></div>`;
             aDiv.appendChild(pc);
           }else if(ev.type==='delta' && ev.content){
             full += ev.content; toks++;
@@ -1912,7 +1912,7 @@ async function sendAgent(){
             aDiv.querySelector('.st').textContent = `${toks} tok · ${(toks/Math.max(0.2,sec)).toFixed(1)} t/s`;
             if(!rafPending){ rafPending = true; requestAnimationFrame(flushMd); }
           }else if(ev.type==='error'){
-            aDiv.querySelector('.bd').textContent = 'Hata: ' + ev.error;
+            aDiv.querySelector('.bd').textContent = 'Error: ' + ev.error;
           }
           feed.scrollTop = feed.scrollHeight;
         }catch(e){}
@@ -1924,7 +1924,7 @@ async function sendAgent(){
     persistCurrentChat();
   }catch(e){
     if(!completedOk) chatHistory.pop();
-    aDiv.querySelector('.bd').textContent = (e.name==='AbortError') ? 'Durduruldu.' : ('Bağlantı hatası: ' + e);
+    aDiv.querySelector('.bd').textContent = (e.name==='AbortError') ? 'Stopped.' : ('Connection error: ' + e);
   }finally{
     btn.disabled = false; abtn.style.display='none'; agentAbortCtrl = null; activeAgentReqId = null;
   }
@@ -1948,7 +1948,7 @@ async function uploadMediaInitImg(ev){
       document.getElementById('vidInitClear').style.display = 'inline-block';
       const sel = document.getElementById('vidPreset');
       if(sel && !sel.value.includes('|i2v|')) sel.value = 'ltx23|i2v|640|384|81';
-    } else alert(j.error||'Gorsel yuklenemedi');
+    } else alert(j.error||'Failed to upload image');
   };
   rd.readAsDataURL(f);
 }
@@ -1956,7 +1956,7 @@ async function uploadMediaInitImg(ev){
 function clearMediaInitImg(){
   mediaInitImgPath = null;
   document.getElementById('vidInitFile').value = '';
-  document.getElementById('vidInitTag').textContent = 'Seçili değil (T2V)';
+  document.getElementById('vidInitTag').textContent = 'None selected (T2V)';
   document.getElementById('vidInitClear').style.display = 'none';
 }
 
@@ -1965,21 +1965,21 @@ function updateMediaProgress(st){
   const lbl = document.getElementById('mediaProgLbl');
   if(!fill || !lbl) return;
   const job = st.media_job;
-  if(!job){ fill.style.width='0%'; lbl.textContent='Hazır'; return; }
-  if(job.status==='done'){ fill.style.width='100%'; lbl.textContent='✓ Tamamlandı'; return; }
-  if(job.status==='error'){ lbl.textContent='✗ Hata'; return; }
-  if(job.status==='stopped'){ lbl.textContent='Durduruldu'; return; }
+  if(!job){ fill.style.width='0%'; lbl.textContent='Ready'; return; }
+  if(job.status==='done'){ fill.style.width='100%'; lbl.textContent='✓ Done'; return; }
+  if(job.status==='error'){ lbl.textContent='✗ Error'; return; }
+  if(job.status==='stopped'){ lbl.textContent='Stopped'; return; }
   const txt = (st.media_logs||[]).join('\n');
-  let pct = 8, stage = 'Model / Gemma-3 yükleniyor...';
+  let pct = 8, stage = 'Loading model / Gemma-3...';
   const stepMatches = [...txt.matchAll(/\|\s*(\d+)\/(\d+)\s*-\s*([\d.]+s\/it|[\d.]+it\/s)/g)];
-  if(txt.includes('Sinema HD') || txt.includes('AI Upscale')){ pct = 92; stage = 'Sinema HD (1280×768 · 32fps · Ses)...'; }
-  else if(txt.includes('audio vae decode completed')){ pct = 88; stage = 'Ses + H.264 MP4 paketleniyor...'; }
-  else if(txt.includes('sampling completed')){ pct = 72; stage = 'Video & Ses VAE Decode...'; }
+  if(txt.includes('Cinema HD') || txt.includes('Sinema HD') || txt.includes('AI Upscale')){ pct = 92; stage = 'Cinema HD (1280×768 · 32fps · Audio)...'; }
+  else if(txt.includes('audio vae decode completed')){ pct = 88; stage = 'Muxing Audio + H.264 MP4...'; }
+  else if(txt.includes('sampling completed')){ pct = 72; stage = 'Video & Audio VAE Decode...'; }
   else if(stepMatches.length){
     const last = stepMatches[stepMatches.length-1];
     const cur = +last[1], tot = Math.max(1, +last[2]);
     pct = Math.round(12 + (cur/tot)*58);
-    stage = `LTX-2.3 Adım ${cur}/${tot} (${last[3]})`;
+    stage = `LTX-2.3 Step ${cur}/${tot} (${last[3]})`;
   }
   fill.style.width = pct + '%';
   lbl.textContent = `${stage} · ${pct}%`;
@@ -1988,21 +1988,21 @@ function updateMediaProgress(st){
 async function enhanceVideoPrompt(){
   const box = document.getElementById('vidPrompt');
   const raw = box.value.trim();
-  if(!raw){ alert('Once kisa bir sahne fikri yazin.'); return; }
+  if(!raw){ alert('Enter a short scene idea first.'); return; }
   const r = await fetch('/api/media/enhance-prompt',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({prompt:raw})
   });
   const j = await r.json();
   if(r.ok && j.enhanced) box.value = j.enhanced;
-  else alert(j.error||'Gelistirilemedi');
+  else alert(j.error||'Failed to enhance prompt');
 }
 
 async function startMedia(){
   const prompt = document.getElementById('vidPrompt').value.trim();
-  if(!prompt){ alert('Sahne promptu bos olamaz.'); return; }
+  if(!prompt){ alert('Scene prompt cannot be empty.'); return; }
   let [engine, mode, w, h, f] = document.getElementById('vidPreset').value.split('|');
-  if(mode==='i2v' && !mediaInitImgPath){ alert('I2V modu icin once bir gorsel secin.'); return; }
+  if(mode==='i2v' && !mediaInitImgPath){ alert('Select an input image first for I2V mode.'); return; }
   if(mode==='t2v' && mediaInitImgPath) mode = 'i2v';
   const r = await fetch('/api/media/start',{
     method:'POST',headers:{'Content-Type':'application/json'},
@@ -2014,7 +2014,7 @@ async function startMedia(){
     })
   });
   const j = await r.json();
-  if(!r.ok) alert(j.error||'Baslatilamadi');
+  if(!r.ok) alert(j.error||'Failed to start generation');
   pollStatus();
 }
 async function stopMedia(){ await fetch('/api/media/stop',{method:'POST'}); pollStatus(); }
@@ -2035,7 +2035,7 @@ function removeIdeTimeline(i){ ideTimeline.splice(i, 1); renderIdeTimelineList()
 function clearIdeTimeline(){ ideTimeline = []; renderIdeTimelineList(); const st=document.getElementById('ideTlStatus'); if(st) st.textContent=''; }
 function renderIdeTimelineList(){
   const el = document.getElementById('ideTlList'); if(!el) return;
-  if(!ideTimeline.length){ el.innerHTML='Aşağıdaki galeriden <b>+</b> ile klipleri sıraya ekleyin.'; return; }
+  if(!ideTimeline.length){ el.innerHTML='Click <b>+</b> on clips in the gallery below to queue them.'; return; }
   el.innerHTML = ideTimeline.map((c,i)=>`
     <div class="row" style="gap:4px;background:var(--bg);border:1px solid var(--b);border-radius:6px;padding:3px 6px">
       <span style="color:#c084fc;font-weight:700">#${i+1}</span>
@@ -2046,10 +2046,10 @@ function renderIdeTimelineList(){
     </div>`).join('');
 }
 async function renderIdeTimeline(){
-  if(!ideTimeline.length){ alert('Once zaman cizelgesine klip ekleyin.'); return; }
+  if(!ideTimeline.length){ alert('Add clips to the timeline first.'); return; }
   const btn = document.getElementById('ideTlBtn');
   const st = document.getElementById('ideTlStatus');
-  btn.disabled = true; st.textContent = 'Kurgu birlestiriliyor (xfade + stereo ses)...';
+  btn.disabled = true; st.textContent = 'Rendering timeline (xfade + stereo audio)...';
   try{
     const r = await fetch('/api/media/timeline',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -2061,10 +2061,10 @@ async function renderIdeTimeline(){
     });
     const j = await r.json();
     if(r.ok && j.ok){
-      st.textContent = `✓ Hazır: ${j.name} (${j.duration_sec}s · ${j.size_mb} MB)`;
+      st.textContent = `✓ Ready: ${j.name} (${j.duration_sec}s · ${j.size_mb} MB)`;
       loadMediaGallery();
       previewMedia(j.name, 'video');
-    } else st.textContent = 'Hata: ' + (j.error||'Kurgu basarisiz');
+    } else st.textContent = 'Error: ' + (j.error||'Timeline render failed');
   }finally{ btn.disabled = false; }
 }
 
@@ -2075,10 +2075,10 @@ async function loadMediaGallery(){
     <div class="gitem" onclick="previewMedia(${escJsArg(it.name)},${escJsArg(it.kind)})">
       <div class="row" style="justify-content:space-between;gap:4px">
         <span style="color:${it.kind==='video'?'#c084fc':'var(--acc)'};font-weight:700">${it.kind==='video'?'▶ MP4':'🖼 PNG'} · ${it.size_mb} MB</span>
-        ${it.kind==='video'?`<button class="sm" title="Zaman çizelgesine ekle" onclick="addToIdeTimeline(${escJsArg(it.name)},${escJsArg(it.label||it.name)},event)">+</button>`:''}
+        ${it.kind==='video'?`<button class="sm" title="Add to timeline" onclick="addToIdeTimeline(${escJsArg(it.name)},${escJsArg(it.label||it.name)},event)">+</button>`:''}
       </div>
       <div class="gname" title="${escHtml(it.name)}">${escHtml(it.label||it.name)}</div>
-    </div>`).join('') : '<div style="color:var(--mut);font-size:12px">Henüz çıktı yok.</div>';
+    </div>`).join('') : '<div style="color:var(--mut);font-size:12px">No outputs yet.</div>';
 }
 
 function previewMedia(name, kind){
@@ -2089,17 +2089,17 @@ function previewMedia(name, kind){
   mv.innerHTML = (kind==='video'
     ? `<video src="${url}" controls autoplay loop></video>`
     : `<img src="${url}" />`)
-    + `<div class="row"><span style="font-size:12px;color:var(--mut)">${escHtml(name)}</span><button class="sm" onclick="closeCenterOverlays()">Editöre Dön</button></div>`;
+    + `<div class="row"><span style="font-size:12px;color:var(--mut)">${escHtml(name)}</span><button class="sm" onclick="closeCenterOverlays()">Back to Editor</button></div>`;
 }
 function closeMediaViewer(){ closeCenterOverlays(); }
 
 function approvePlanAndRun(btnEl){
   const card = btnEl.closest('.plan-card');
-  if(card){ card.innerHTML = '<div style="font-size:11.5px;color:var(--ok);font-weight:700">✓ Plan Onaylandı — Ajan uyguluyor...</div>'; }
+  if(card){ card.innerHTML = '<div style="font-size:11.5px;color:var(--ok);font-weight:700">✓ Plan Approved — Agent executing...</div>'; }
   document.getElementById('agentMode').value = 'agent';
   const chk = document.getElementById('chkAutoVerify');
   if(chk) chk.checked = true;
-  document.getElementById('chatInp').value = 'Plan onaylandı. Şimdi tüm değişiklikleri adım adım uygula ve doğrula.';
+  document.getElementById('chatInp').value = 'Plan approved. Apply all changes step by step and verify with tests.';
   sendAgent();
 }
 

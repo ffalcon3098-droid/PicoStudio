@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>PicoStudio IDE — Yerel Kodlama, Terminal &amp; Video Stüdyosu</title>
+<title>PicoStudio IDE — Local Coding, Terminal &amp; Video Studio</title>
 <meta name="ps-csrf" content="__PS_CSRF__" />
 <link rel="stylesheet" href="/static/style.css" />
 </head>
@@ -11,22 +11,22 @@
 <header>
   <div class="brand">
     <span>PicoStudio IDE</span>
-    <span class="pill">v0.11.0</span>
-    <span id="gpuOwnerPill" class="pill">GPU: Boşta</span>
+    <span class="pill">v0.12.0</span>
+    <span id="gpuOwnerPill" class="pill">GPU: Idle</span>
   </div>
   <div class="row">
-    <span style="font-size:12px;color:var(--mut)">Proje:</span>
+    <span style="font-size:12px;color:var(--mut)">Project:</span>
     <select id="projSel" onchange="switchProject(this.value)"></select>
-    <button class="sm" onclick="newProjectPrompt()" title="Yeni proje klasörü oluştur veya aç">+ Yeni Proje</button>
-    <button class="sm" onclick="openCmdPalette()" title="Komut Paleti (Ctrl+Shift+P)">⌘ Komutlar</button>
-    <button class="sm" onclick="cycleTheme()" title="Tema değiştir (Midnight / Obsidian / Light)">◐ Tema</button>
+    <button class="sm" onclick="newProjectPrompt()" title="Create or open a project folder">+ New Project</button>
+    <button class="sm" onclick="openCmdPalette()" title="Command Palette (Ctrl+Shift+P)">⌘ Commands</button>
+    <button class="sm" onclick="cycleTheme()" title="Switch theme (Midnight / Obsidian / Light)">◐ Theme</button>
   </div>
   <div class="hdr-right">
-    <select id="modelSel" onchange="switchCodingModel(this.value)" title="Aktif Kodlama Modeli"></select>
+    <select id="modelSel" onchange="switchCodingModel(this.value)" title="Active Coding Model"></select>
     <div class="meter"><div id="vramTxt">VRAM: --</div><div class="mbar"><div id="vramFill" class="mfill"></div></div></div>
     <div class="meter"><div id="ramTxt">RAM: --</div><div class="mbar"><div id="ramFill" class="mfill"></div></div></div>
-    <button id="llmBtn" class="sm primary" onclick="toggleCodingEngine()">Kodlama AI Başlat</button>
-    <button class="sm danger" onclick="stopAllGpu()">GPU Boşalt</button>
+    <button id="llmBtn" class="sm primary" onclick="toggleCodingEngine()">Start Coding AI</button>
+    <button class="sm danger" onclick="stopAllGpu()">Free GPU</button>
   </div>
 </header>
 
@@ -34,27 +34,27 @@
   <!-- LEFT: EXPLORER + GIT -->
   <section id="leftPane" class="pane">
     <div class="ltabs">
-      <div id="ltabFiles" class="ltab active" onclick="switchLeftTab('files')">Dosyalar</div>
+      <div id="ltabFiles" class="ltab active" onclick="switchLeftTab('files')">Files</div>
       <div id="ltabGit" class="ltab" onclick="switchLeftTab('git')">Git <span id="gitBadge" class="gbadge">0</span></div>
     </div>
 
     <div id="leftFiles" style="flex:1;display:flex;flex-direction:column;min-height:0">
       <div class="pane-hdr">
-        <span>Gezgin</span>
+        <span>Explorer</span>
         <div class="row" style="gap:4px">
-          <button class="sm" onclick="openQuickOpen()" title="Hızlı dosya aç (Ctrl+P)">Ctrl+P</button>
-          <button class="sm" onclick="newFilePrompt()">+ Yeni</button>
+          <button class="sm" onclick="openQuickOpen()" title="Quick Open file (Ctrl+P)">Ctrl+P</button>
+          <button class="sm" onclick="newFilePrompt()">+ New</button>
           <button class="sm" onclick="loadTree()">↻</button>
         </div>
       </div>
       <div class="search-box">
-        <input id="searchInp" placeholder="Projede ara..." onkeydown="if(event.key==='Enter')searchProject()" />
-        <button class="sm" onclick="searchProject()">Ara</button>
-        <button class="sm" onclick="toggleProjReplace()" title="Proje çapında bul &amp; değiştir">⇄</button>
+        <input id="searchInp" placeholder="Search in project..." onkeydown="if(event.key==='Enter')searchProject()" />
+        <button class="sm" onclick="searchProject()">Search</button>
+        <button class="sm" onclick="toggleProjReplace()" title="Project-wide find &amp; replace">⇄</button>
       </div>
       <div id="projReplaceRow" class="search-box" style="display:none">
-        <input id="projReplaceInp" placeholder="Bununla değiştir..." onkeydown="if(event.key==='Enter')replaceInProject()" />
-        <button class="sm primary" onclick="replaceInProject()">Değiştir</button>
+        <input id="projReplaceInp" placeholder="Replace with..." onkeydown="if(event.key==='Enter')replaceInProject()" />
+        <button class="sm primary" onclick="replaceInProject()">Replace</button>
       </div>
       <div id="searchHits" class="search-hits"></div>
       <div id="fileTree" class="tree"></div>
@@ -64,163 +64,163 @@
       <div class="pane-hdr">
         <span id="gitBranchLbl">⎇ Git</span>
         <div class="row" style="gap:4px">
-          <button class="sm" onclick="gitStageAll()" title="Tüm değişiklikleri stage et">+ Tümü</button>
+          <button class="sm" onclick="gitStageAll()" title="Stage all changes">+ All</button>
           <button class="sm" onclick="loadGitStatus(true)">↻</button>
         </div>
       </div>
       <div class="git-box">
-        <textarea id="gitCommitMsg" rows="2" placeholder="Commit mesajı yazın..."></textarea>
+        <textarea id="gitCommitMsg" rows="2" placeholder="Write a commit message..."></textarea>
         <div class="row" style="gap:5px">
           <button class="sm primary" style="flex:1" onclick="gitCommit()">Commit</button>
-          <button id="gitAiBtn" class="sm" onclick="gitAiMessage()" title="Yerel AI ile diff'ten commit mesajı üret">✨ AI</button>
-          <button class="sm" onclick="openMultiFileReview()" title="Tüm değişen dosyaları yan yana (Side-by-Side) incele">📋 İncele</button>
-          <button class="sm" onclick="openGitDiff('',false)" title="Tüm çalışma diff'ini gör">Diff</button>
+          <button id="gitAiBtn" class="sm" onclick="gitAiMessage()" title="Generate commit message from diff with local AI">✨ AI</button>
+          <button class="sm" onclick="openMultiFileReview()" title="Review all changed files side-by-side">📋 Review</button>
+          <button class="sm" onclick="openGitDiff('',false)" title="View full working diff">Diff</button>
         </div>
       </div>
       <div id="gitScroll" class="git-scroll"></div>
     </div>
   </section>
-  <div id="leftResizer" class="vresizer" title="Sol paneli boyutlandır"></div>
+  <div id="leftResizer" class="vresizer" title="Resize left pane"></div>
 
   <!-- CENTER: EDITOR PRO + VISUAL DIFF + TERMINAL PRO -->
   <section class="center-col">
     <div class="editor-area">
       <div id="tabBar" class="tabbar"></div>
       <div class="etoolbar">
-        <span id="activeFileLbl">Dosya seçilmedi</span>
+        <span id="activeFileLbl">No file selected</span>
         <span id="cursorStatus" style="font-size:11px;color:#64748b"></span>
         <div style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap">
-          <button class="sm" onclick="openSymbolPalette(false)" title="Dosya sembolleri / Outline (Ctrl+Shift+O · # ile tüm proje)">ƒ Sembol</button>
-          <button class="sm" onclick="triggerFimComplete()" title="İmleçte AI kod tamamlama (Alt+Space)">⚡ Tamamla</button>
-          <button class="sm purple" onclick="openInlineEditBar()" title="Seçili kodu AI ile satır içi düzenle (Ctrl+K)">✨ Ctrl+K</button>
-          <button class="sm" onclick="toggleFindBar(true)" title="Dosya içi bul / değiştir (Ctrl+F)">Bul</button>
-          <button class="sm" onclick="adjustFontSize(-1)" title="Yazıyı küçült">A-</button>
-          <button class="sm" onclick="adjustFontSize(1)" title="Yazıyı büyüt">A+</button>
-          <button class="sm primary" onclick="saveActiveFile()">Kaydet (Ctrl+S)</button>
-          <button class="sm" onclick="askAiAboutFile('Bu dosyadaki olasi buglari ve iyilestirmeleri bul:')">Bug Bul</button>
-          <button class="sm" onclick="askAiAboutFile('Bu dosya icin temiz bir refactor onerisi ve tam kodu ver:')">Refactor</button>
-          <button class="sm" onclick="askAiAboutFile('Bu dosya icin unittest birim testleri yaz:')">Test Yaz</button>
-          <button class="sm" onclick="closeCenterOverlays()">Editöre Dön</button>
+          <button class="sm" onclick="openSymbolPalette(false)" title="File Symbols / Outline (Ctrl+Shift+O · # for whole project)">ƒ Symbols</button>
+          <button class="sm" onclick="triggerFimComplete()" title="AI code completion at cursor (Alt+Space)">⚡ Complete</button>
+          <button class="sm purple" onclick="openInlineEditBar()" title="Inline AI edit on selected code (Ctrl+K)">✨ Ctrl+K</button>
+          <button class="sm" onclick="toggleFindBar(true)" title="In-file find / replace (Ctrl+F)">Find</button>
+          <button class="sm" onclick="adjustFontSize(-1)" title="Decrease font size">A-</button>
+          <button class="sm" onclick="adjustFontSize(1)" title="Increase font size">A+</button>
+          <button class="sm primary" onclick="saveActiveFile()">Save (Ctrl+S)</button>
+          <button class="sm" onclick="askAiAboutFile('Find potential bugs and concrete improvements in this file:')">Find Bugs</button>
+          <button class="sm" onclick="askAiAboutFile('Suggest a clean refactor and provide the updated code for this file:')">Refactor</button>
+          <button class="sm" onclick="askAiAboutFile('Write unit tests for this file:')">Write Tests</button>
+          <button class="sm" onclick="closeCenterOverlays()">Back to Editor</button>
         </div>
       </div>
       <div id="diagBar" class="diag-bar"></div>
       <div id="fimBar" class="fim-bar">
         <div class="row" style="gap:6px">
-          <span class="pill">⚡ AI Tamamlama</span>
-          <span id="fimStatus" style="font-size:11.5px;color:var(--mut);flex:1">İmleç için öneri üretiliyor...</span>
-          <button class="sm primary" onclick="acceptFim()">✓ Kabul (Tab)</button>
-          <button class="sm danger" onclick="hideFim()">İptal (Esc)</button>
+          <span class="pill">⚡ AI Completion</span>
+          <span id="fimStatus" style="font-size:11.5px;color:var(--mut);flex:1">Generating suggestion at cursor...</span>
+          <button class="sm primary" onclick="acceptFim()">✓ Accept (Tab)</button>
+          <button class="sm danger" onclick="hideFim()">Cancel (Esc)</button>
         </div>
         <pre id="fimCode"></pre>
       </div>
       <div id="inlineKBar" class="inline-k">
         <div class="row" style="gap:6px">
-          <span class="pill">✨ Ctrl+K Satır İçi AI</span>
-          <input id="inlineKInp" style="flex:1" placeholder="Seçili koda ne yapılsın? (örn: hata yakalama ekle, async yap, docstring yaz)..." onkeydown="if(event.key==='Enter')runInlineEdit();if(event.key==='Escape')closeInlineEditBar();" />
-          <button id="inlineKRunBtn" class="sm primary" onclick="runInlineEdit()">Önizle</button>
+          <span class="pill">✨ Ctrl+K Inline AI</span>
+          <input id="inlineKInp" style="flex:1" placeholder="What should change in the selected code? (e.g. add error handling, make async, add docstrings)..." onkeydown="if(event.key==='Enter')runInlineEdit();if(event.key==='Escape')closeInlineEditBar();" />
+          <button id="inlineKRunBtn" class="sm primary" onclick="runInlineEdit()">Preview</button>
           <button class="sm" onclick="closeInlineEditBar()">×</button>
         </div>
         <div id="inlineKPreview" style="display:none;flex-direction:column;gap:6px">
           <pre id="inlineKDiff"></pre>
           <div class="row" style="gap:6px">
             <span id="inlineKStats" style="font-size:11.5px;color:var(--mut)"></span>
-            <button class="sm primary" style="margin-left:auto" onclick="applyInlineEdit()">✓ Değişikliği Uygula</button>
-            <button class="sm danger" onclick="closeInlineEditBar()">İptal</button>
+            <button class="sm primary" style="margin-left:auto" onclick="applyInlineEdit()">✓ Apply Change</button>
+            <button class="sm danger" onclick="closeInlineEditBar()">Cancel</button>
           </div>
         </div>
       </div>
       <div id="findBar" class="find-bar">
-        <input id="findInp" placeholder="Bul..." oninput="updateFindMatches()" onkeydown="onFindKey(event)" />
-        <input id="replaceInp" placeholder="Değiştir..." onkeydown="if(event.key==='Enter')replaceOne()" />
+        <input id="findInp" placeholder="Find..." oninput="updateFindMatches()" onkeydown="onFindKey(event)" />
+        <input id="replaceInp" placeholder="Replace..." onkeydown="if(event.key==='Enter')replaceOne()" />
         <span id="findCount" style="color:var(--mut);font-size:11px;min-width:46px">0/0</span>
         <button class="sm" onclick="jumpFind(-1)">▲</button>
         <button class="sm" onclick="jumpFind(1)">▼</button>
-        <button class="sm" onclick="replaceOne()">Değiştir</button>
-        <button class="sm" onclick="replaceAll()">Tümü</button>
+        <button class="sm" onclick="replaceOne()">Replace</button>
+        <button class="sm" onclick="replaceAll()">All</button>
         <button class="sm" onclick="toggleFindBar(false)">×</button>
       </div>
       <div class="code-host">
         <div id="gutter" class="gutter">1</div>
         <div id="codeStage" class="code-stage">
           <pre id="codeHighlight" class="code-hl" aria-hidden="true"></pre>
-          <textarea id="codeEditor" spellcheck="false" placeholder="Sol panelden bir dosya açın, Ctrl+P ile hızlı açın veya + Yeni ile oluşturun..."></textarea>
+          <textarea id="codeEditor" spellcheck="false" placeholder="Open a file from the left pane, press Ctrl+P for Quick Open, or click + New..."></textarea>
         </div>
         <div id="diffViewer"></div>
         <div id="mediaViewer"></div>
       </div>
     </div>
 
-    <div id="termResizer" class="resizer" title="Terminali boyutlandırmak için sürükleyin"></div>
+    <div id="termResizer" class="resizer" title="Drag to resize terminal"></div>
     <div id="termArea" class="term-area">
       <div class="ttabbar">
         <div id="termTabs" class="row" style="gap:4px"></div>
-        <button class="sm" onclick="createTerminalTab()" title="Yeni terminal sekmesi">+</button>
+        <button class="sm" onclick="createTerminalTab()" title="New terminal tab">+</button>
         <span id="termCwd" style="font-size:11px;color:var(--acc);margin-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px"></span>
         <div class="row" style="margin-left:auto;gap:4px">
-          <button class="sm" onclick="runTerm('py -m unittest discover -s tests -v')">Test Koş</button>
+          <button class="sm" onclick="runTerm('py -m unittest discover -s tests -v')">Run Tests</button>
           <button class="sm" onclick="runTerm('git status -s')">git</button>
-          <button class="sm" onclick="sendTermErrorToAi()" title="Terminal çıktısını AI'ya gönder">AI Çöz</button>
-          <button class="sm danger" onclick="stopTerm()">Durdur</button>
-          <button class="sm" onclick="clearTerm()">Temizle</button>
-          <button class="sm" onclick="toggleTermMax()" title="Büyüt/Küçült">⤢</button>
-          <button class="sm" onclick="toggleTermCollapse()" title="Daralt/Aç">▾</button>
+          <button class="sm" onclick="sendTermErrorToAi()" title="Send terminal output to AI">AI Fix</button>
+          <button class="sm danger" onclick="stopTerm()">Stop</button>
+          <button class="sm" onclick="clearTerm()">Clear</button>
+          <button class="sm" onclick="toggleTermMax()" title="Maximize/Restore">⤢</button>
+          <button class="sm" onclick="toggleTermCollapse()" title="Collapse/Expand">▾</button>
         </div>
       </div>
       <div class="term-body">
         <div id="termOut" class="term-out"></div>
         <div id="compBar" class="comp-bar"></div>
         <div id="nlCmdBar" class="nl-bar">
-          <span class="pill">AI Komut</span>
+          <span class="pill">AI Command</span>
           <code id="nlCmdCode"></code>
           <span id="nlCmdDesc" style="color:var(--mut);font-size:11.5px;flex:1"></span>
-          <button class="sm primary" onclick="acceptNlCmd(true)">Çalıştır</button>
-          <button class="sm" onclick="acceptNlCmd(false)">Düzenle</button>
-          <button class="sm danger" onclick="hideNlBar()">İptal</button>
+          <button class="sm primary" onclick="acceptNlCmd(true)">Run</button>
+          <button class="sm" onclick="acceptNlCmd(false)">Edit</button>
+          <button class="sm danger" onclick="hideNlBar()">Cancel</button>
         </div>
         <div id="termErrBar" class="term-err-bar"></div>
         <div class="term-inp">
           <span id="termPromptTag" class="prompt-tag">PS&gt;</span>
-          <input id="termInp" autocomplete="off" placeholder="Komut yazın (↑↓ geçmiş · Tab tamamla · ? ile Türkçe AI komut)..." onkeydown="onTermKey(event)" />
-          <button id="termRunBtn" class="sm primary" onclick="submitTermInput()">Çalıştır</button>
+          <input id="termInp" autocomplete="off" placeholder="Enter command (↑↓ history · Tab complete · ? for natural-language AI command)..." onkeydown="onTermKey(event)" />
+          <button id="termRunBtn" class="sm primary" onclick="submitTermInput()">Run</button>
         </div>
       </div>
     </div>
   </section>
-  <div id="rightResizer" class="vresizer" title="Sağ paneli boyutlandır"></div>
+  <div id="rightResizer" class="vresizer" title="Resize right pane"></div>
 
   <!-- RIGHT: AI CODING AGENT + VIDEO/IMAGE STUDIO -->
   <section id="rightPane" class="pane">
     <div class="rtabs">
-      <div id="rtabCode" class="rtab active" onclick="switchRightTab('code')">Kod Ajanı v3</div>
-      <div id="rtabVid" class="rtab" onclick="switchRightTab('media')">Video &amp; Görsel</div>
+      <div id="rtabCode" class="rtab active" onclick="switchRightTab('code')">Coding Agent v3</div>
+      <div id="rtabVid" class="rtab" onclick="switchRightTab('media')">Video &amp; Image</div>
     </div>
 
     <!-- TAB 1: CODING AGENT -->
     <div id="rightCode" class="rbody">
       <div class="chat-sess-bar">
-        <select id="chatSessSel" onchange="selectChatSession(this.value)" title="Proje sohbet geçmişi"></select>
-        <span id="agentCtxPill" class="pill" title="Tahmini bağlam penceresi kullanımı (32K)">ctx: 0%</span>
-        <button class="sm" onclick="newChatSession()" title="Yeni sohbet başlat">+ Yeni</button>
-        <button class="sm danger" onclick="deleteCurrentChatSession()" title="Sohbeti sil">×</button>
+        <select id="chatSessSel" onchange="selectChatSession(this.value)" title="Project chat history"></select>
+        <span id="agentCtxPill" class="pill" title="Estimated context window usage (32K)">ctx: 0%</span>
+        <button class="sm" onclick="newChatSession()" title="Start new chat">+ New</button>
+        <button class="sm danger" onclick="deleteCurrentChatSession()" title="Delete chat">×</button>
       </div>
       <div id="chatFeed" class="chat-feed">
         <div class="msg">
-          <div class="msg-hdr"><span>PicoStudio Ajan v3</span><span>16 Adım · AST + Git</span></div>
-          <b>@dosya</b> ile bağlam ekleyin, <b>Ctrl+K</b> ile satır içi düzenleyin; <b>Ajan v3</b> AST repo haritası, Git diff, anlık sözdizimi denetimi, <b>Oto-Test</b> ve tek tık <b>Tüm Turu Geri Al</b> ile çok dosyalı görevleri güvenle tamamlar.
+          <div class="msg-hdr"><span>PicoStudio Agent v3</span><span>16 Steps · AST + Git</span></div>
+          Use <b>@file</b> to attach context and <b>Ctrl+K</b> for inline edits; <b>Agent v3</b> uses AST repo maps, Git diffs, instant syntax diagnostics, <b>Auto-Test</b>, and 1-click <b>Undo Full Turn</b> to complete multi-file tasks safely.
         </div>
       </div>
       <div class="chat-ctrl">
         <div class="chat-opts">
-          <label><input type="checkbox" id="chkIncludeFile" checked /> Proje + dosya</label>
-          <select id="agentMode" title="Hızlı anında yanıtlar; Planla+Onayla önce plan çıkarır; Ajan v3 16 adıma kadar AST/Git araçlarıyla çalışır">
-            <option value="fast">Hızlı (Proje Bağlamlı)</option>
-            <option value="plan">Planla + Onayla (Çok Dosyalı)</option>
-            <option value="agent" selected>Ajan v3 (16 Adım · AST + Git)</option>
+          <label><input type="checkbox" id="chkIncludeFile" checked /> Project + file</label>
+          <select id="agentMode" title="Fast answers immediately; Plan + Approve drafts a plan first; Agent v3 runs up to 16 steps with AST/Git tools">
+            <option value="fast">Fast (Project Context)</option>
+            <option value="plan">Plan + Approve (Multi-File)</option>
+            <option value="agent" selected>Agent v3 (16 Steps · AST + Git)</option>
           </select>
-          <label title="Ajan dosya düzenledikten sonra proje testlerini otomatik koşar; hata çıkarsa kendi düzeltir"><input type="checkbox" id="chkAutoVerify" checked /> Oto-Test</label>
-          <label style="cursor:pointer"><span class="pill">+ Görsel</span><input id="chatImg" type="file" accept="image/*" style="display:none" onchange="onChatImg(event)" /></label>
-          <span id="chatImgTag" style="display:none" class="pill ok">Görsel eklendi</span>
-          <button class="sm" style="margin-left:auto" onclick="newChatSession()">Temizle</button>
+          <label title="Automatically runs workspace tests after edits and self-heals failures"><input type="checkbox" id="chkAutoVerify" checked /> Auto-Test</label>
+          <label style="cursor:pointer"><span class="pill">+ Image</span><input id="chatImg" type="file" accept="image/*" style="display:none" onchange="onChatImg(event)" /></label>
+          <span id="chatImgTag" style="display:none" class="pill ok">Image attached</span>
+          <button class="sm" style="margin-left:auto" onclick="newChatSession()">Clear</button>
         </div>
         <div class="chip-row">
           <span class="chip" onclick="useQuickChip('/review')">/review</span>
@@ -232,9 +232,9 @@
         </div>
         <div class="row" style="align-items:flex-end;position:relative">
           <div id="atMenu" class="at-menu"></div>
-          <textarea id="chatInp" rows="2" style="flex:1;resize:vertical" placeholder="Görev yazın (@dosya bağlam · Ctrl+Enter gönder)..." oninput="onChatInpChange()" onkeydown="onChatInpKey(event)"></textarea>
-          <button id="chatSendBtn" class="primary" style="height:48px;min-width:68px" onclick="sendAgent()">Gönder</button>
-          <button id="chatAbortBtn" class="danger" style="height:48px;display:none" onclick="abortAgent()">Dur</button>
+          <textarea id="chatInp" rows="2" style="flex:1;resize:vertical" placeholder="Describe your task (@file context · Ctrl+Enter to send)..." oninput="onChatInpChange()" onkeydown="onChatInpKey(event)"></textarea>
+          <button id="chatSendBtn" class="primary" style="height:48px;min-width:68px" onclick="sendAgent()">Send</button>
+          <button id="chatAbortBtn" class="danger" style="height:48px;display:none" onclick="abortAgent()">Stop</button>
         </div>
       </div>
     </div>
@@ -243,65 +243,65 @@
     <div id="rightMedia" class="rbody" style="display:none">
       <div class="media-scroll">
         <div class="mcard">
-          <div style="font-size:11.5px;color:#c084fc;font-weight:700">6 GB VRAM Otomatik Devir Aktif</div>
-          <div style="font-size:11.5px;color:var(--mut)">Video/Görsel başlatıldığında çalışan kodlama modeli otomatik kapanır, 6 GB VRAM güvenle PicoVid'e aktarılır.</div>
-          <textarea id="vidPrompt" rows="3" placeholder="Sahne açıklamanızı yazın (Türkçe veya İngilizce)..."></textarea>
+          <div style="font-size:11.5px;color:#c084fc;font-weight:700">6 GB VRAM Auto-Handoff Active</div>
+          <div style="font-size:11.5px;color:var(--mut)">When Video/Image generation starts, the running coding model unloads automatically so 6 GB VRAM is safely handed to PicoVid.</div>
+          <textarea id="vidPrompt" rows="3" placeholder="Describe your scene (any language)..."></textarea>
           <div class="row">
-            <button class="sm" style="flex:1" onclick="enhanceVideoPrompt()">Yerel AI ile Sinematikleştir (Ses+Video)</button>
+            <button class="sm" style="flex:1" onclick="enhanceVideoPrompt()">Enhance Prompt with Local AI (Audio+Video)</button>
           </div>
           <div class="row">
             <select id="vidPreset" style="flex:1">
-              <option value="ltx23|t2v|640|384|81">LTX-2.3 22B T2V + Ses (640×384 · 5.1sn · 16fps ★)</option>
-              <option value="ltx23|t2v|768|448|25">LTX-2.3 22B T2V + Ses (768×448 · 1.0sn · 24fps Hızlı)</option>
-              <option value="ltx23|t2v|640|384|49">LTX-2.3 22B T2V + Ses (640×384 · 3.1sn · 16fps)</option>
-              <option value="ltx23|i2v|640|384|81">LTX-2.3 22B I2V + Ses (Görselden 5.1sn Video)</option>
-              <option value="ltx23|studio|640|384|49">Stüdyo: Z-Image → LTX-2.3 I2V + Ses (3.1sn)</option>
-              <option value="ltx23|t2i|832|480|1">Z-Image-Turbo Görsel (832×480 · 16:9 Hızlı)</option>
+              <option value="ltx23|t2v|640|384|81">LTX-2.3 22B T2V + Audio (640×384 · 5.1s · 16fps ★)</option>
+              <option value="ltx23|t2v|768|448|25">LTX-2.3 22B T2V + Audio (768×448 · 1.0s · 24fps Fast)</option>
+              <option value="ltx23|t2v|640|384|49">LTX-2.3 22B T2V + Audio (640×384 · 3.1s · 16fps)</option>
+              <option value="ltx23|i2v|640|384|81">LTX-2.3 22B I2V + Audio (Image to 5.1s Video)</option>
+              <option value="ltx23|studio|640|384|49">Studio: Z-Image → LTX-2.3 I2V + Audio (3.1s)</option>
+              <option value="ltx23|t2i|832|480|1">Z-Image-Turbo Image (832×480 · 16:9 Fast)</option>
             </select>
           </div>
           <div class="row" style="gap:6px;align-items:center;font-size:12px">
             <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px">
-              <span class="pill">🖼 I2V Görsel Seç</span>
+              <span class="pill">🖼 Choose I2V Image</span>
               <input id="vidInitFile" type="file" accept="image/*" style="display:none" onchange="uploadMediaInitImg(event)" />
             </label>
-            <span id="vidInitTag" style="font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">Seçili değil (T2V)</span>
+            <span id="vidInitTag" style="font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">None selected (T2V)</span>
             <button id="vidInitClear" class="sm" style="display:none" onclick="clearMediaInitImg()">×</button>
           </div>
           <div class="row" style="font-size:12px;color:var(--mut);gap:10px">
-            <label title="2x Vulkan AI Upscale (1280x768) + 32fps akıcılık — 48 kHz Stereo ses korunur!"><input type="checkbox" id="chkCinemaHd" checked /> Sinema HD (1280×768 · 32fps · Ses Korumalı)</label>
-            <label style="display:none"><input type="checkbox" id="chkFastPrev" /> Hızlı Önizleme</label>
+            <label title="2x Vulkan AI Upscale (1280x768) + 32fps smoothing — 48 kHz Stereo audio preserved!"><input type="checkbox" id="chkCinemaHd" checked /> Cinema HD (1280×768 · 32fps · Audio Preserved)</label>
+            <label style="display:none"><input type="checkbox" id="chkFastPrev" /> Fast Preview</label>
           </div>
           <div class="row">
-            <button id="vidStartBtn" class="purple" style="flex:1" onclick="startMedia()">Üretimi Başlat</button>
-            <button class="danger" onclick="stopMedia()">Durdur</button>
+            <button id="vidStartBtn" class="purple" style="flex:1" onclick="startMedia()">Start Generation</button>
+            <button class="danger" onclick="stopMedia()">Stop</button>
           </div>
         </div>
 
         <div class="mcard">
           <div class="row" style="justify-content:space-between;font-size:11.5px;color:var(--mut);font-weight:700">
-            <span>Canlı Üretim Durumu</span>
-            <span id="mediaProgLbl" style="color:#c084fc">Hazır</span>
+            <span>Live Generation Status</span>
+            <span id="mediaProgLbl" style="color:#c084fc">Ready</span>
           </div>
           <div class="mbar" style="width:100%;height:7px"><div id="mediaProgFill" class="mfill" style="width:0%;background:linear-gradient(90deg,#818cf8,#c084fc)"></div></div>
-          <div id="mediaLogBox" class="logbox">Henüz üretim başlatılmadı.</div>
+          <div id="mediaLogBox" class="logbox">No generation started yet.</div>
         </div>
 
         <div class="mcard">
           <div class="row" style="justify-content:space-between">
-            <span style="font-size:11.5px;color:#c084fc;font-weight:700">🎞 Zaman Çizelgesi (Çoklu Klip Kurgu)</span>
-            <button class="sm" onclick="clearIdeTimeline()">Temizle</button>
+            <span style="font-size:11.5px;color:#c084fc;font-weight:700">🎞 Timeline (Multi-Clip Editor)</span>
+            <button class="sm" onclick="clearIdeTimeline()">Clear</button>
           </div>
           <div id="ideTlList" style="display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--mut)">
-            Aşağıdaki galeriden <b>+</b> ile klipleri sıraya ekleyin.
+            Click <b>+</b> on clips in the gallery below to queue them.
           </div>
           <div class="row" style="gap:6px">
             <select id="ideTlTrans" style="flex:1">
-              <option value="dissolve" selected>Yumuşak Geçiş (Dissolve)</option>
-              <option value="fadeblack">Siyaha Kararma (Fade Black)</option>
-              <option value="wipeleft">Sola Silme (Wipe Left)</option>
-              <option value="smoothleft">Akıcı Kayma (Smooth Left)</option>
-              <option value="circleopen">İris Açılış (Circle Open)</option>
-              <option value="cut">Keskin Kesim (Cut)</option>
+              <option value="dissolve" selected>Dissolve</option>
+              <option value="fadeblack">Fade Black</option>
+              <option value="wipeleft">Wipe Left</option>
+              <option value="smoothleft">Smooth Left</option>
+              <option value="circleopen">Circle Open</option>
+              <option value="cut">Hard Cut</option>
             </select>
             <select id="ideTlDur" style="width:74px">
               <option value="0.4">0.4s</option>
@@ -309,14 +309,14 @@
               <option value="1.0">1.0s</option>
             </select>
           </div>
-          <button id="ideTlBtn" class="sm primary" onclick="renderIdeTimeline()">▶ Kurguyu Birleştir (Ses+Video)</button>
+          <button id="ideTlBtn" class="sm primary" onclick="renderIdeTimeline()">▶ Render Timeline (Audio+Video)</button>
           <div id="ideTlStatus" style="font-size:11px;color:var(--acc)"></div>
         </div>
 
         <div class="mcard">
           <div class="row" style="justify-content:space-between">
-            <span style="font-size:11.5px;color:var(--mut);font-weight:700">Son Çıktılar (Tıkla İzle · + Kurguya Ekle)</span>
-            <button class="sm" onclick="loadMediaGallery()">Yenile</button>
+            <span style="font-size:11.5px;color:var(--mut);font-weight:700">Recent Outputs (Click to Preview · + Add to Timeline)</span>
+            <button class="sm" onclick="loadMediaGallery()">Refresh</button>
           </div>
           <div id="mediaGallery" class="gallery"></div>
         </div>
@@ -328,7 +328,7 @@
 <!-- QUICK OPEN MODAL (Ctrl+P) -->
 <div id="quickOpenBackdrop" class="qo-backdrop" onclick="if(event.target===this)closeQuickOpen()">
   <div class="qo-modal">
-    <input id="quickOpenInp" placeholder="Dosya adına göre hızlı aç (Ctrl+P)..." oninput="renderQuickOpen()" onkeydown="onQuickOpenKey(event)" />
+    <input id="quickOpenInp" placeholder="Quick Open file by name (Ctrl+P)..." oninput="renderQuickOpen()" onkeydown="onQuickOpenKey(event)" />
     <div id="quickOpenList" class="qo-list"></div>
   </div>
 </div>
@@ -336,7 +336,7 @@
 <!-- COMMAND PALETTE MODAL (Ctrl+Shift+P) -->
 <div id="cmdPaletteBackdrop" class="qo-backdrop" onclick="if(event.target===this)closeCmdPalette()">
   <div class="qo-modal">
-    <input id="cmdPaletteInp" placeholder="Komut ara (Ctrl+Shift+P)..." oninput="renderCmdPalette()" onkeydown="onCmdPaletteKey(event)" />
+    <input id="cmdPaletteInp" placeholder="Search commands (Ctrl+Shift+P)..." oninput="renderCmdPalette()" onkeydown="onCmdPaletteKey(event)" />
     <div id="cmdPaletteList" class="qo-list"></div>
   </div>
 </div>
@@ -344,7 +344,7 @@
 <!-- SYMBOL OUTLINE MODAL (Ctrl+Shift+O · # for workspace) -->
 <div id="symBackdrop" class="qo-backdrop" onclick="if(event.target===this)closeSymbolPalette()">
   <div class="qo-modal">
-    <input id="symInp" placeholder="Sembol ara (Ctrl+Shift+O · tüm proje için # yazın)..." oninput="renderSymbolPalette()" onkeydown="onSymbolKey(event)" />
+    <input id="symInp" placeholder="Search symbols (Ctrl+Shift+O · type # for whole project)..." oninput="renderSymbolPalette()" onkeydown="onSymbolKey(event)" />
     <div id="symList" class="qo-list"></div>
   </div>
 </div>

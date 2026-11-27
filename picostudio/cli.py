@@ -83,21 +83,21 @@ def cmd_status(arbiter: GPUArbiter) -> int:
     st = arbiter.get_status()
     inv = arbiter.get_inventory()
     hw = st["hardware"]
-    print("\n================ PicoStudio Durum ================")
+    print("\n================ PicoStudio Status ================")
     print(f"  GPU           : {hw['gpu_name']} ({hw['backend'].upper()}, {hw['vram_total_gib']:.1f} GiB)")
     if hw.get("vram_used_ded_gib") is not None:
-        print(f"  Canli VRAM    : {hw['vram_used_ded_gib']:.2f} / {hw['vram_total_gib']:.1f} GiB (Shared: {hw.get('vram_used_shr_gib') or 0:.2f} GiB)")
+        print(f"  Live VRAM     : {hw['vram_used_ded_gib']:.2f} / {hw['vram_total_gib']:.1f} GiB (Shared: {hw.get('vram_used_shr_gib') or 0:.2f} GiB)")
     if hw.get("ram_total_gib") is not None:
-        print(f"  Sistem RAM    : {hw.get('ram_used_gib') or 0:.1f} / {hw['ram_total_gib']:.1f} GiB")
-    print("\n  [Kodlama Modelleri — PicoCode]")
+        print(f"  System RAM    : {hw.get('ram_used_gib') or 0:.1f} / {hw['ram_total_gib']:.1f} GiB")
+    print("\n  [Coding Models — PicoCode]")
     for m in inv["coding_models"]:
-        tag = "HAZIR" if m["installed"] else "EKSIK"
+        tag = "READY" if m["installed"] else "MISS"
         print(f"    [{tag:5s}] {m['id']:18s} ({m['size_gib']:.2f} GiB) — {m['label']}")
-    print("\n  [Video & Gorsel Modelleri — PicoVid]")
+    print("\n  [Video & Image Models — PicoVid]")
     for m in inv["media_models"]:
-        tag = "HAZIR" if m["installed"] else "EKSIK"
+        tag = "READY" if m["installed"] else "MISS"
         print(f"    [{tag:5s}] {m['id']:18s} — {m['label']}")
-    print("==================================================\n")
+    print("===================================================\n")
     return 0
 
 
@@ -108,7 +108,7 @@ def cmd_media(arbiter: GPUArbiter, prompt: str, engine: str, mode: str, cinema_h
         cinema_hd=cinema_hd, fast_preview=fast_preview,
     )
     if not ok:
-        print(f"HATA: {msg}", file=sys.stderr)
+        print(f"ERROR: {msg}", file=sys.stderr)
         return 1
     print(f"[PicoStudio] {msg}", flush=True)
     seen = 0
@@ -121,7 +121,7 @@ def cmd_media(arbiter: GPUArbiter, prompt: str, engine: str, mode: str, cinema_h
             seen = len(logs)
             job = st.get("media_job") or {}
             if job.get("status") in ("done", "error", "stopped"):
-                print(f"[PicoStudio] Bitti ({job['status']}) -> {out_path}")
+                print(f"[PicoStudio] Finished ({job['status']}) -> {out_path}")
                 return 0 if job.get("status") == "done" else 1
             time.sleep(0.5)
     except KeyboardInterrupt:
@@ -130,13 +130,13 @@ def cmd_media(arbiter: GPUArbiter, prompt: str, engine: str, mode: str, cinema_h
 
 
 def cmd_chat(arbiter: GPUArbiter, work_dir: pathlib.Path, mode: str) -> int:
-    print(f"[PicoStudio CLI] Calisma dizini: {work_dir} | Mod: {mode}")
-    print("[PicoStudio CLI] Kodlama modeli yukleniyor...")
+    print(f"[PicoStudio CLI] Working directory: {work_dir} | Mode: {mode}")
+    print("[PicoStudio CLI] Loading coding model...")
     ok, msg = arbiter.start_coding(wait_ready=True)
     if not ok:
-        print(f"HATA: {msg}", file=sys.stderr)
+        print(f"ERROR: {msg}", file=sys.stderr)
         return 1
-    print(f"[HAZIR] Komutlar: /file <dosya> | /run <komut> | /video <prompt> | /image <prompt> | /mode fast|think | /exit\n")
+    print(f"[READY] Commands: /file <path> | /run <cmd> | /video <prompt> | /image <prompt> | /mode fast|think | /exit\n")
     history: list[dict] = []
     attached_ctx = ""
     try:
@@ -153,30 +153,30 @@ def cmd_chat(arbiter: GPUArbiter, work_dir: pathlib.Path, mode: str) -> int:
                 m = user_in.split(maxsplit=1)[1].strip().lower()
                 if m in ("fast", "think"):
                     mode = m
-                    print(f"[Mod degisti -> {mode}]")
+                    print(f"[Mode switched -> {mode}]")
                 continue
             if user_in.startswith("/file "):
                 rel = user_in[6:].strip()
                 fp = (work_dir / rel).resolve()
                 if not fp.exists():
-                    print(f"[HATA] Dosya bulunamadi: {fp}")
+                    print(f"[ERROR] File not found: {fp}")
                     continue
                 attached_ctx = f"File `{rel}`:\n```\n{fp.read_text(encoding='utf-8', errors='replace')[:12000]}\n```\n\n"
-                print(f"[Eklendi] {rel} ({fp.stat().st_size} bayt)")
+                print(f"[Attached] {rel} ({fp.stat().st_size} bytes)")
                 continue
             if user_in.startswith("/run "):
                 sh = user_in[5:].strip()
                 res = subprocess.run(["powershell", "-NoProfile", "-Command", sh], cwd=str(work_dir))
-                print(f"[cikis kodu: {res.returncode}]")
+                print(f"[exit code: {res.returncode}]")
                 continue
             if user_in.startswith("/video "):
                 cmd_media(arbiter, user_in[7:].strip(), engine="5b", mode="t2v", cinema_hd=True, fast_preview=False)
-                print("[PicoStudio] Kodlama modeli tekrar yukleniyor...")
+                print("[PicoStudio] Reloading coding model...")
                 arbiter.start_coding(wait_ready=True)
                 continue
             if user_in.startswith("/image "):
                 cmd_media(arbiter, user_in[7:].strip(), engine="5b", mode="t2i", cinema_hd=False, fast_preview=False)
-                print("[PicoStudio] Kodlama modeli tekrar yukleniyor...")
+                print("[PicoStudio] Reloading coding model...")
                 arbiter.start_coding(wait_ready=True)
                 continue
 
@@ -247,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "ask":
         ok, msg = arbiter.start_coding(wait_ready=True)
         if not ok:
-            print(f"HATA: {msg}", file=sys.stderr)
+            print(f"ERROR: {msg}", file=sys.stderr)
             return 1
         try:
             ctx = ""

@@ -81,7 +81,7 @@ class TerminalSession:
                 self.running = False
                 self.proc = None
                 self.cond.notify_all()
-            self._emit("\x1b[33m[İşlem durduruldu]\x1b[0m")
+            self._emit("\x1b[33m[Process stopped]\x1b[0m")
             return True
         return False
 
@@ -91,13 +91,13 @@ class TerminalSession:
             proc = self.proc
             is_running = self.running and proc is not None and proc.poll() is None
         if not is_running or proc is None or proc.stdin is None:
-            return False, "Aktif çalışan bir işlem yok."
+            return False, "No active running process."
         try:
             payload = text if text.endswith("\n") else (text + "\n")
             proc.stdin.write(payload)
             proc.stdin.flush()
             self._emit(f"\x1b[90m› {text.rstrip()}\x1b[0m")
-            return True, "Gönderildi"
+            return True, "Sent"
         except Exception as exc:
             return False, str(exc)
 
@@ -145,7 +145,7 @@ class TerminalSession:
     def run_command(self, command: str) -> tuple[bool, str]:
         cmd = (command or "").strip()
         if not cmd:
-            return False, "Boş komut."
+            return False, "Empty command."
 
         with self.lock:
             if not self.history or self.history[-1] != cmd:
@@ -164,16 +164,16 @@ class TerminalSession:
                 self.set_cwd(target)
                 return True, str(target)
             self._emit(f"\x1b[36mPS {self.cwd}>\x1b[0m {cmd}")
-            self._emit(f"\x1b[31mHATA: Dizin bulunamadı: {target}\x1b[0m")
-            return False, f"Dizin bulunamadı: {target}"
+            self._emit(f"\x1b[31mERROR: Directory not found: {target}\x1b[0m")
+            return False, f"Directory not found: {target}"
 
         if cmd.lower() in ("cls", "clear"):
             self.clear()
-            return True, "Temizlendi"
+            return True, "Cleared"
 
         with self.lock:
             if self.running and self.proc is not None and self.proc.poll() is None:
-                return False, "Önceki komut hâlâ çalışıyor — girdi gönderebilir veya Durdur'a basabilirsiniz."
+                return False, "Previous command is still running — send stdin input or click Stop."
             self.running = True
             self.last_exit = None
             cwd_str = str(self.cwd)
@@ -211,7 +211,7 @@ class TerminalSession:
                 self.running = False
                 self.proc = None
                 self.cond.notify_all()
-            self._emit(f"\x1b[31mHATA: Komut baslatilamadi: {exc}\x1b[0m")
+            self._emit(f"\x1b[31mERROR: Failed to launch command: {exc}\x1b[0m")
             return False, str(exc)
         with self.cond:
             self.proc = proc
@@ -240,10 +240,10 @@ class TerminalSession:
                     self.proc = None
                 self.cond.notify_all()
             color = "\x1b[32m" if code == 0 else "\x1b[31m"
-            self._emit(f"{color}[çıkış kodu: {code}]\x1b[0m")
+            self._emit(f"{color}[exit code: {code}]\x1b[0m")
 
         threading.Thread(target=_drain, daemon=True).start()
-        return True, "Başlatıldı"
+        return True, "Started"
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:

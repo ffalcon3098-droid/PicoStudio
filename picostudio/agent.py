@@ -213,7 +213,7 @@ def run_workspace_tests(ws: Workspace, custom_cmd: str | None = None, timeout: i
     """Execute workspace tests and return structured pass/fail diagnostics."""
     cmd = (custom_cmd or "").strip() or detect_test_command(ws)
     if not cmd:
-        return {"ran": False, "passed": True, "command": "", "exit_code": 0, "output": "Projede otomatik test komutu bulunamadi."}
+        return {"ran": False, "passed": True, "command": "", "exit_code": 0, "output": "No automated test command detected in workspace."}
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     env = _build_ws_env(ws)
     try:
@@ -237,7 +237,7 @@ def run_workspace_tests(ws: Workspace, custom_cmd: str | None = None, timeout: i
             "output": out[-3500:],
         }
     except subprocess.TimeoutExpired:
-        return {"ran": True, "passed": False, "command": cmd, "exit_code": 124, "output": f"Test komutu zaman asimina ugradi ({timeout}s)."}
+        return {"ran": True, "passed": False, "command": cmd, "exit_code": 124, "output": f"Test command timed out ({timeout}s)."}
     except Exception as exc:
         return {"ran": True, "passed": False, "command": cmd, "exit_code": 1, "output": str(exc)}
 
@@ -442,7 +442,7 @@ def is_dangerous_command(cmd: str) -> str | None:
     """Return matched safety reason if an agent terminal command is destructive, else None."""
     for pat in _DANGEROUS_CMD_PATTERNS:
         if pat.search(cmd or ""):
-            return f"Guvenlik engeli: yikici komut ajan tarafindan otomatik calistirilamaz (`{pat.pattern[:48]}`). Kullanicidan terminalde manuel calistirmasini isteyin."
+            return f"Security block: destructive command cannot be auto-run by the agent (`{pat.pattern[:48]}`). Ask the user to run it manually in the terminal."
     return None
 
 
@@ -699,7 +699,7 @@ def run_agent_stream(
         )
         conv_fast: list[dict[str, Any]] = [{"role": "system", "content": fast_sys}] + list(user_messages)
         yield {"type": "metrics", "step": 1, "max_steps": 1, "est_ctx_tokens": estimate_context_tokens(conv_fast), "ctx_limit": ctx_limit, "compacted": False}
-        yield {"type": "status", "text": "Proje bağlamıyla yanıt üretiliyor..."}
+        yield {"type": "status", "text": "Generating response with project context..."}
         use_prefill = is_inkling
         prefill = "### " if use_prefill else ""
         msgs_send = conv_fast + ([{"role": "assistant", "content": prefill}] if use_prefill else [])
@@ -717,7 +717,7 @@ def run_agent_stream(
         with urllib.request.urlopen(req, timeout=360) as resp:
             for raw in resp:
                 if cancel_event is not None and cancel_event.is_set():
-                    yield {"type": "status", "text": "İptal edildi."}
+                    yield {"type": "status", "text": "Cancelled."}
                     yield {"type": "done", "full_text": "".join(full)}
                     return
                 ln = raw.decode("utf-8", errors="replace").strip()
@@ -797,7 +797,7 @@ def run_agent_stream(
 
     while step < effective_steps + 1:
         if cancel_event is not None and cancel_event.is_set():
-            yield {"type": "status", "text": "İptal edildi."}
+            yield {"type": "status", "text": "Cancelled."}
             cp = _emit_checkpoint()
             if cp:
                 yield cp
@@ -811,8 +811,8 @@ def run_agent_stream(
             conv.append({
                 "role": "user",
                 "content": (
-                    "İnceleme adımları tamamlandı. Başka araç çağırma; şimdiye kadar okuduğun gerçek dosyalara "
-                    "dayanarak net, somut ve dosya adlarıyla desteklenmiş final raporunu/yanıtını yaz."
+                    "Inspection steps are complete. Do not call any more tools; write your clear, concrete final "
+                    "report/answer grounded in the real files and lines you read, in the user's language."
                 ),
             })
         yield {
@@ -823,8 +823,8 @@ def run_agent_stream(
             "ctx_limit": ctx_limit,
             "compacted": did_compact,
         }
-        phase_lbl = "Final yanıt yazılıyor" if force_final else ("Plan/İnceleme hazırlanıyor" if is_plan_mode else "Ajan v3 düşünüyor")
-        yield {"type": "status", "text": f"{phase_lbl} (adım {min(step, effective_steps)}/{effective_steps})..."}
+        phase_lbl = "Writing final answer" if force_final else ("Drafting plan/review" if is_plan_mode else "Agent v3 thinking")
+        yield {"type": "status", "text": f"{phase_lbl} (step {min(step, effective_steps)}/{effective_steps})..."}
         step_sampling = dict(sampling_extra)
         if "reasoning_budget" in step_sampling:
             if not force_final and step < effective_steps:
@@ -849,7 +849,7 @@ def run_agent_stream(
         with urllib.request.urlopen(req, timeout=360) as resp:
             for raw in resp:
                 if cancel_event is not None and cancel_event.is_set():
-                    yield {"type": "status", "text": "İptal edildi."}
+                    yield {"type": "status", "text": "Cancelled."}
                     cp = _emit_checkpoint()
                     if cp:
                         yield cp
@@ -869,7 +869,7 @@ def run_agent_stream(
                 if delta.get("reasoning_content"):
                     r_toks += 1
                     if r_toks % 15 == 1:
-                        yield {"type": "status", "text": f"{phase_lbl} (adım {step}/{effective_steps} · {r_toks} tok)..."}
+                        yield {"type": "status", "text": f"{phase_lbl} (step {step}/{effective_steps} · {r_toks} tok)..."}
                 if delta.get("content"):
                     step_content.append(delta["content"])
                     final_chunks.append(delta["content"])
@@ -913,7 +913,7 @@ def run_agent_stream(
                 # Agent Mode Auto-Verify & Self-Heal Loop!
                 if auto_verify and modified_files:
                     heal_round += 1
-                    yield {"type": "status", "text": f"Otomatik test çalıştırılıyor (tur {heal_round})..."}
+                    yield {"type": "status", "text": f"Running auto-tests (round {heal_round})..."}
                     vres = run_workspace_tests(ws, custom_cmd=test_cmd)
                     if vres["ran"]:
                         yield {
@@ -929,14 +929,14 @@ def run_agent_stream(
                             conv.append({
                                 "role": "user",
                                 "content": (
-                                    f"Otomatik test komutu `{vres['command']}` HATA verdi (exit_code={vres['exit_code']}):\n"
+                                    f"Automated test command `{vres['command']}` FAILED (exit_code={vres['exit_code']}):\n"
                                     f"```\n{vres['output'][-2200:]}\n```\n"
-                                    "Hatayı incele, `edit_file` veya `write_file` ile düzelt ve özetle."
+                                    "Inspect the failure, fix it with `edit_file` or `write_file`, and summarize."
                                 ),
                             })
                             modified_files.clear()
                             effective_steps = max(effective_steps, step + 4)
-                            yield {"type": "status", "text": f"Test başarısız — ajan otomatik düzeltiyor (tur {heal_round}/{max_heal_rounds})..."}
+                            yield {"type": "status", "text": f"Tests failed — agent self-healing (round {heal_round}/{max_heal_rounds})..."}
                             continue
 
                 cp = _emit_checkpoint()
@@ -982,7 +982,7 @@ def run_agent_stream(
                 result_text = f"ERROR: Tool '{fn_name}' JSON arguments were invalid or truncated ({parse_err}). Retry with valid JSON or write one file at a time."
                 change_info = None
             elif is_plan_mode and fn_name not in READONLY_TOOL_NAMES:
-                result_text = f"ERROR: Plan modunda '{fn_name}' engellendi. Sadece okuma araclarini kullanin."
+                result_text = f"ERROR: '{fn_name}' is blocked in Plan Mode. Use read-only tools only."
                 change_info = None
             elif is_dup_loop:
                 result_text = (
@@ -996,7 +996,7 @@ def run_agent_stream(
                 if per_call_cap and fn_name in READONLY_TOOL_NAMES and len(result_text) > per_call_cap:
                     result_text = (
                         result_text[:per_call_cap].rstrip()
-                        + "\n... [paralel adım bütçesi nedeniyle kırpıldı; devamı için read_file(start_line, end_line) çağırın]"
+                        + "\n... [trimmed for parallel step budget; call read_file(start_line, end_line) for more]"
                     )
 
             if change_info:

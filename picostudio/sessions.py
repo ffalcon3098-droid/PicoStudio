@@ -75,7 +75,7 @@ class ChatSessionStore:
             # Strip huge inline base64 images when persisting history
             if isinstance(content, list):
                 txt_parts = [str(p.get("text") or "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
-                content = " ".join(txt_parts).strip() or "[Görsel]"
+                content = " ".join(txt_parts).strip() or "[Image]"
             else:
                 content = str(content or "")
             if role == "user" and not auto_title and content.strip():
@@ -85,7 +85,7 @@ class ChatSessionStore:
         rec = {
             "id": sid,
             "project": str(pathlib.Path(project_root).resolve()),
-            "title": (title or "").strip() or auto_title or "Yeni Sohbet",
+            "title": (title or "").strip() or auto_title or "New Chat",
             "updated_at": time.time(),
             "messages": clean_msgs,
         }

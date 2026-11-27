@@ -46,10 +46,10 @@ class Workspace:
         cand = cand.resolve()
         if not cand.is_relative_to(self.projects_root) and cand != self._initial_root:
             raise PermissionError(
-                f"Proje kok dizini disina gecis engellendi: {cand} (izinli kok: {self.projects_root})"
+                f"Switching outside the projects root is blocked: {cand} (allowed root: {self.projects_root})"
             )
         if not cand.exists() or not cand.is_dir():
-            raise FileNotFoundError(f"Klasor bulunamadi: {cand}")
+            raise FileNotFoundError(f"Directory not found: {cand}")
         with self._lock:
             self.root = cand
         return cand
@@ -57,11 +57,11 @@ class Workspace:
     def create_project(self, name_or_path: str) -> pathlib.Path:
         raw = (name_or_path or "").strip().strip('"').strip("'")
         if not raw:
-            raise ValueError("Proje adi bos olamaz.")
+            raise ValueError("Project name cannot be empty.")
         cand = pathlib.Path(raw)
         if not cand.is_absolute():
             if ".." in cand.parts:
-                raise PermissionError("Gecersiz proje adi.")
+                raise PermissionError("Invalid project name.")
             cand = self.projects_root / cand
         cand = cand.resolve()
         # Security boundary: prevent creating/pivoting projects outside projects_root
@@ -69,7 +69,7 @@ class Workspace:
             cand.relative_to(self.projects_root)
         except ValueError as exc:
             raise PermissionError(
-                f"Proje kok dizini disinda proje olusturulamaz: {cand} (izinli kok: {self.projects_root})"
+                f"Cannot create project outside projects root: {cand} (allowed root: {self.projects_root})"
             ) from exc
         cand.mkdir(parents=True, exist_ok=True)
         self.root = cand
@@ -101,8 +101,8 @@ class Workspace:
             target.relative_to(self.root)
         except ValueError as exc:
             raise PermissionError(
-                f"Calisma alani disina erisim engellendi: {rel_path} "
-                f"(Yeni proje klasoru olusturmak icin ustteki '+ Yeni Proje' butonunu kullanin)"
+                f"Access outside workspace is blocked: {rel_path} "
+                f"(Use '+ New Project' in the top bar to create or open another project)"
             ) from exc
         return target
 
@@ -139,13 +139,13 @@ class Workspace:
     def read_file(self, rel_path: str) -> dict[str, Any]:
         p = self.safe_path(rel_path)
         if not p.exists() or not p.is_file():
-            raise FileNotFoundError(f"Dosya bulunamadi: {rel_path}")
+            raise FileNotFoundError(f"File not found: {rel_path}")
         sz = p.stat().st_size
         if sz > MAX_READ_BYTES:
-            raise ValueError(f"Dosya editor icin cok buyuk ({sz // 1024} KB > 512 KB)")
+            raise ValueError(f"File too large for editor ({sz // 1024} KB > 512 KB)")
         raw = p.read_bytes()
         if b"\x00" in raw[:8192]:
-            raise ValueError(f"Ikili (binary) dosya metin editorunde acilamaz: {rel_path}")
+            raise ValueError(f"Binary file cannot be opened in the text editor: {rel_path}")
         content = raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
         return {"path": p.relative_to(self.root).as_posix(), "content": content, "size": sz}
 
@@ -164,7 +164,7 @@ class Workspace:
         existed = p.exists() and p.is_file()
         old_bytes = p.read_bytes() if existed else b""
         if existed and b"\x00" in old_bytes[:8192]:
-            raise ValueError(f"Ikili (binary) dosya metin olarak duzenlenemez: {rel_path}")
+            raise ValueError(f"Binary file cannot be edited as text: {rel_path}")
         old_text = old_bytes.decode("utf-8", errors="replace").replace("\r\n", "\n") if existed else ""
         res = self.write_file(rel_path, content)
         undo_id = uuid.uuid4().hex[:10]
@@ -202,7 +202,7 @@ class Workspace:
         with self._lock:
             rec = self._undo_store.pop(undo_id, None)
         if not rec:
-            raise KeyError("Geri alma kaydi bulunamadi veya zaten geri alindi.")
+            raise KeyError("Undo record not found or already reverted.")
         p = pathlib.Path(rec["abs_path"])
         if rec["existed"]:
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -233,7 +233,7 @@ class Workspace:
             elif res["path"] not in restored:
                 restored.append(res["path"])
         if count == 0:
-            raise KeyError("Geri alinacak gecerli kayit bulunamadi veya zaten geri alindi.")
+            raise KeyError("No valid undo records found or already reverted.")
         return {"count": count, "restored_paths": restored, "deleted_paths": deleted}
 
     def delete_file(self, rel_path: str) -> bool:
@@ -247,7 +247,7 @@ class Workspace:
         """Delete a file while recording a byte-exact undo snapshot so the deletion can be reverted."""
         p = self.safe_path(rel_path)
         if p == self.root or not p.exists() or p.is_dir():
-            raise FileNotFoundError(f"Silinecek dosya bulunamadi: {rel_path}")
+            raise FileNotFoundError(f"File to delete not found: {rel_path}")
         rel = p.relative_to(self.root).as_posix()
         old_bytes = p.read_bytes()
         old_text = old_bytes.decode("utf-8", errors="replace").replace("\r\n", "\n")
@@ -372,7 +372,7 @@ class Workspace:
         """Case-sensitive safe multi-file search & replace across workspace text files (with undo snapshots)."""
         q = query or ""
         if not q:
-            return {"ok": False, "error": "Aranacak metin bos olamaz.", "files": [], "total_replacements": 0}
+            return {"ok": False, "error": "Search query cannot be empty.", "files": [], "total_replacements": 0}
         changed: list[dict[str, Any]] = []
         total = 0
         for item in self.list_tree(max_depth=5, max_items=600):

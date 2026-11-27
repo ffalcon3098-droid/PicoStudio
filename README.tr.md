@@ -1,12 +1,17 @@
-# PicoStudio v0.11.0 — Yerel IDE Pro, Kod Ajanı v3, Yan Yana Diff İnceleme & LTX-2.3 Ses+Video Stüdyosu
+# PicoStudio v0.12.0 — Yerel IDE Pro, Kod Ajanı v3, Yan Yana Diff İnceleme & LTX-2.3 Ses+Video Stüdyosu
 
 > [For English documentation, see README.md](README.md)
 
-**PicoStudio**, elinizdeki yerel **Kod Ajanı v3'ü (`PicoCode v0.3.0` · 30 tok/s'ye ulaşan Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** ve **Video/Görsel Motorlarını (`PicoVid` · LTX-2.3 22B Distilled 1.1 Ses+Video + Z-Image-Turbo)** tek bir sıfır bağımlılıklı **3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Yan Yana (Side-by-Side) Diff & Çok Dosyalı İnceleme**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
+**PicoStudio**, elinizdeki yerel **Kod Ajanı v3'ü (`PicoCode v0.7.0` · Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** ve **Video/Görsel Motorlarını (`PicoVid v0.7.0` · LTX-2.3 22B Distilled 1.1 Ses+Video + Z-Image-Turbo)** tek bir sıfır bağımlılıklı **İngilizce varsayılan 3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Yan Yana (Side-by-Side) Diff & Çok Dosyalı İnceleme**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ortak çalıştırır.
 
 ---
 
 ## Öne Çıkan Özellikler
+
+- **İngilizce Varsayılan Arayüz/CLI & Ajan v3 İnceleme İyileştirmeleri (`v0.12.0`):**
+  - **%100 İngilizce Varsayılan IDE & CLI:** Web IDE (`<html lang="en">`), Komut Paleti, Git/Diff İnceleme, Terminal Pro, GPU Nöbetçisi, Video Stüdyosu ve CLI durum/hata mesajları temiz İngilizce varsayılanına geçirildi (AI yanıtları kullanıcının yazdığı dilde — örn. Türkçe soruya Türkçe — yanıt vermeye devam eder).
+  - **Tek Adımlı `project_overview` + Rust/Go `symbols.py`:** Proje yapısını tek araç çağrısında özetleyen `project_overview` ile Python, JS/TS, Rust (`.rs` + `#[tauri::command]`) ve Go (`.go`) sembol desteği.
+  - **KV-Cache Korumalı Final Sentez & Kanıt Kuralı:** 10 adımlı salt-okunur Plan/İnceleme modu final turda `tools` şemasını koruyup `tool_choice="none"` ile %100 KV önbelleğini korur; paralel araç çıktısı bütçesini dengeler ve hata/güvenlik iddiası öncesi kodu `search_code`/`read_file` ile doğrulama kuralı uygular.
 
 - **Yan Yana (Side-by-Side) Diff, Çok Dosyalı İnceleme & Terminal Tek Tık Hata Düzeltici (`v0.10.0`):**
   - **2 Sütunlu Satır Numaralı Side-by-Side Diff (`◫ Yan Yana` / `☰ Tek Sütun`):** `git_ops.py` içinde yatay eşleştirilen eski/yeni satırlar (`split_rows`) ile koyu ve açık tema uyumlu karşılaştırma.

@@ -125,8 +125,8 @@ class GPUArbiter:
             vreg = json.loads(vid_reg_path.read_text(encoding="utf-8"))
             vfiles = vreg.get("files", {})
             checks = [
-                ("ltx23-distilled", "LTX-2.3 22B Distilled (Ses + Video · T2V/I2V)", ("ltx23_distilled_q4_k_m",)),
-                ("z-image-turbo", "Z-Image-Turbo (Hızlı Görsel Üretimi)", ("z_image_turbo_q4_k", "z_image_turbo_q4_k_m", "z_image_turbo")),
+                ("ltx23-distilled", "LTX-2.3 22B Distilled (Audio + Video · T2V/I2V)", ("ltx23_distilled_q4_k_m",)),
+                ("z-image-turbo", "Z-Image-Turbo (Fast Image Generation)", ("z_image_turbo_q4_k", "z_image_turbo_q4_k_m", "z_image_turbo")),
             ]
             for eid, label, keys in checks:
                 fitem = next((vfiles[k] for k in keys if k in vfiles), None)
@@ -204,7 +204,7 @@ class GPUArbiter:
                     proc.wait(timeout=6)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                self._log("[Arbiter] Kodlama modeli durduruldu — GPU VRAM serbest birakildi.")
+                self._log("[Arbiter] Coding model stopped — GPU VRAM released.")
             self._kill_port_llama_server()
 
     def stop_media(self) -> None:
@@ -226,7 +226,7 @@ class GPUArbiter:
                     proc.wait(timeout=6)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                self._log("[Arbiter] Video/Gorsel uretimi durduruldu (alt surecler dahil).", media=True)
+                self._log("[Arbiter] Video/Image generation stopped (including child processes).", media=True)
 
     def stop_all(self) -> None:
         self.stop_media()
@@ -249,17 +249,17 @@ class GPUArbiter:
         with self._op_lock:
             with self.lock:
                 if self.owner == "media" and self.media_proc is not None and self.media_proc.poll() is None:
-                    return False, "Su an Video/Gorsel uretimi GPU'yu kullaniyor. Once bitmesini bekleyin veya durdurun."
+                    return False, "Video/Image generation is currently using the GPU. Wait for it to finish or stop it first."
                 chosen_model = model_id or self.coding_model
                 if self.owner == "coding" and self.coding_proc is not None and self.coding_proc.poll() is None and chosen_model == self.coding_model:
-                    return True, f"{chosen_model} zaten hazir."
+                    return True, f"{chosen_model} is already ready."
                 if self.owner == "coding_starting" and self.coding_proc is not None and self.coding_proc.poll() is None and chosen_model == self.coding_model:
                     existing_proc = self.coding_proc
 
             if existing_proc is None:
                 self.stop_coding()
                 if self._picocode_serve is None:
-                    return False, f"PicoCode bulunamadi: {self.picocode_dir}"
+                    return False, f"PicoCode not found: {self.picocode_dir}"
 
                 reg = self._picocode_serve.load_registry(self.picocode_dir / "configs" / "models_registry.json")
                 if chosen_model in reg["models"]:
@@ -269,7 +269,7 @@ class GPUArbiter:
                 self.hw_base = hw
                 exe = self._picocode_serve.find_llama_server(hw.get("backend", "vulkan"))
                 if exe is None:
-                    return False, "llama-server.exe bulunamadi! PicoCode klasorunde setup.cmd calistirin."
+                    return False, "llama-server.exe not found! Run setup.cmd inside the PicoCode folder."
 
                 draft_flag = self.cfg.get("coding_use_draft", False) if use_draft is None else use_draft
                 vision_flag = self.cfg.get("coding_use_vision", True) if use_vision is None else use_vision
@@ -294,7 +294,7 @@ class GPUArbiter:
                     self.coding_model = chosen_model
                     self.coding_plan = plan
                     self.last_error = ""
-                    self.logs = [f"[Arbiter] Kodlama modeli yukleniyor: {plan['label']}"]
+                    self.logs = [f"[Arbiter] Loading coding model: {plan['label']}"]
 
                 flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 proc = subprocess.Popen(
@@ -320,7 +320,7 @@ class GPUArbiter:
                             self.coding_proc = None
                             if self.owner in ("coding", "coding_starting"):
                                 self.owner = "idle"
-                                self.last_error = f"llama-server cikti (kod={code})"
+                                self.last_error = f"llama-server exited (code={code})"
 
                 threading.Thread(target=_watch, daemon=True).start()
 
@@ -331,8 +331,8 @@ class GPUArbiter:
                     with self.lock:
                         if self.coding_proc is existing_proc:
                             self.owner = "coding"
-                return ok, ("Hazir" if ok else "Sunucu hazir olamadi.")
-            return True, f"{self.coding_model} zaten yukleniyor..."
+                return ok, ("Ready" if ok else "Coding server failed to become ready.")
+            return True, f"{self.coding_model} is already loading..."
 
         assert proc is not None
         def _wait_health() -> None:
@@ -341,24 +341,24 @@ class GPUArbiter:
                 if self.coding_proc is proc:
                     if ok:
                         self.owner = "coding"
-                        self.logs.append(f"[Arbiter] HAZIR -> http://{self.llm_host}:{self.llm_port}/v1")
+                        self.logs.append(f"[Arbiter] READY -> http://{self.llm_host}:{self.llm_port}/v1")
                     elif self.owner == "coding_starting":
                         self.owner = "idle"
-                        self.last_error = "Kodlama sunucusu hazir olamadi."
+                        self.last_error = "Coding server failed to become ready."
 
         if wait_ready:
             _wait_health()
             with self.lock:
-                return (self.owner == "coding"), ("Hazir" if self.owner == "coding" else self.last_error)
+                return (self.owner == "coding"), ("Ready" if self.owner == "coding" else self.last_error)
         threading.Thread(target=_wait_health, daemon=True).start()
-        return True, f"{chosen_model} baslatiliyor..."
+        return True, f"Starting {chosen_model}..."
 
     # ---------- Unified LLM Helpers (Eliminates boilerplate across IDE endpoints) ----------
 
     def ensure_coding_ready(self) -> tuple[bool, int, str]:
         """Ensure coding LLM is ready; returns (ok, http_status, error_msg)."""
         if self.owner == "media":
-            return False, 409, "GPU su an Video/Gorsel uretiminde."
+            return False, 409, "GPU is currently busy with Video/Image generation."
         if self.owner != "coding":
             ok, msg = self.start_coding(wait_ready=True)
             if not ok:
@@ -464,17 +464,17 @@ class GPUArbiter:
     ) -> tuple[bool, str, str | None]:
         gen_script = self.picovid_dir / "scripts" / "generate.py"
         if not gen_script.exists():
-            return False, f"PicoVid bulunamadi: {gen_script}", None
+            return False, f"PicoVid not found: {gen_script}", None
 
         with self._op_lock:
             with self.lock:
                 if self.owner == "media" and self.media_proc is not None and self.media_proc.poll() is None:
-                    return False, "Zaten bir Video/Gorsel uretimi calisiyor.", None
+                    return False, "A Video/Image generation job is already running.", None
                 was_coding = self.owner in ("coding", "coding_starting")
 
-            # CRITICAL 6 GB VRAM HANDOFF: unload Coding LLM before launching Wan 2.2 / Z-Image!
+            # CRITICAL 6 GB VRAM HANDOFF: unload Coding LLM before launching LTX-2.3 / Z-Image!
             if was_coding:
-                self._log("[Arbiter] 6 GB VRAM korumasi: Kodlama modeli kapatiliyor, GPU Video motoruna devrediliyor...", media=True)
+                self._log("[Arbiter] 6 GB VRAM guard: unloading coding model and handing GPU to PicoVid...", media=True)
                 self.stop_coding()
                 time.sleep(1.0)
 
@@ -514,8 +514,8 @@ class GPUArbiter:
                 self.owner = "media"
                 self.last_error = ""
                 self.media_logs = [
-                    f"[Arbiter] GPU devralindi -> PicoVid ({engine.upper()} / {mode.upper()})",
-                    f"[Arbiter] Cikti: {out_file.name}",
+                    f"[Arbiter] GPU acquired -> PicoVid ({engine.upper()} / {mode.upper()})",
+                    f"[Arbiter] Output: {out_file.name}",
                 ]
                 self.media_job = {
                     "status": "running",
@@ -548,7 +548,7 @@ class GPUArbiter:
                     self.last_error = str(exc)
                     if self.media_job is not None:
                         self.media_job["status"] = "error"
-                return False, f"PicoVid baslatilamadi: {exc}", None
+                return False, f"Failed to launch PicoVid: {exc}", None
             with self.lock:
                 self.media_proc = proc
 
@@ -569,12 +569,12 @@ class GPUArbiter:
                         self.media_job["status"] = "done" if code == 0 else "error"
                 if self.owner == "media":
                     self.owner = "idle"
-            self._log(f"[Arbiter] Uretim tamamlandi (kod={code}) — GPU tekrar bosta.", media=True)
+            self._log(f"[Arbiter] Generation finished (code={code}) — GPU idle again.", media=True)
             if was_coding and self.cfg.get("auto_resume_coding_after_media"):
                 self.start_coding(self.coding_model)
 
         threading.Thread(target=_watch_media, daemon=True).start()
-        return True, f"Uretim baslatildi: {out_file.name}", str(out_file)
+        return True, f"Generation started: {out_file.name}", str(out_file)
 
     def list_media_outputs(self, limit: int = 36) -> list[dict[str, Any]]:
         out_dir = self.picovid_dir / "outputs"

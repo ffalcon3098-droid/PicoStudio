@@ -1,17 +1,21 @@
-# PicoStudio v0.11.0 — Local IDE Pro, Coding Agent v3, Side-by-Side Review & LTX-2.3 Audio+Video Studio
+# PicoStudio v0.12.0 — Local IDE Pro, Coding Agent v3, Side-by-Side Review & LTX-2.3 Audio+Video Studio
 
 > [Türkçe dokümantasyon için README.tr.md](README.tr.md)
 
-**PicoStudio** unifies your local **Coding Agent v3 (`PicoCode v0.3.0` · Qwen3-Coder-30B-A3B MoE up to 30 tok/s + Inkling 2 Mini Vision)** and **Video/Image Studio (`PicoVid` · LTX-2.3 22B Distilled 1.1 Audio+Video + Z-Image-Turbo)** into a single zero-dependency **3-pane Dark/Light Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Side-by-Side Diff & Multi-File Review**, **Multi-Clip Timeline Editor (`xfade` + stereo `acrossfade`)**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **6 GB VRAM GPU Arbiter**.
+**PicoStudio** unifies your local **Coding Agent v3 (`PicoCode v0.7.0` · Qwen3-Coder-30B-A3B MoE + Inkling 2 Mini Vision)** and **Video/Image Studio (`PicoVid v0.7.0` · LTX-2.3 22B Distilled 1.1 Audio+Video + Z-Image-Turbo)** into a single zero-dependency **English-first 3-pane Dark/Light Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Side-by-Side Diff & Multi-File Review**, **Multi-Clip Timeline Editor (`xfade` + stereo `acrossfade`)**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **6 GB VRAM GPU Arbiter**.
 
 ---
 
 ## Highlights
 
+- **English-First IDE, CLI & Agent v3 Review Upgrades (`v0.12.0`):**
+  - **100% English Default UI & CLI:** Web IDE (`<html lang="en">`), Command Palette, Git/Diff Review, Terminal Pro, GPU Arbiter, Video Studio, and CLI status/errors now default to clean English while AI responses automatically reply in the user's prompt language.
+  - **1-Shot `project_overview` + Rust/Go `symbols.py`:** Instant codebase orientation (manifests, directory/language counts, largest core files) and AST/regex symbol indexing across Python, JS/TS, Rust (`.rs` + `#[tauri::command]`), and Go (`.go`).
+  - **KV-Cache Preserving Final Synthesis & Evidence-First Rule:** 10-step read-only Plan/Review mode keeps `tools` identical with `tool_choice="none"` on the final turn (preserving 100% KV prefix cache), caps parallel read-tool output budgets, and requires verifying code with `search_code`/`read_file` before reporting bugs or security findings.
 - **Side-by-Side Diff Viewer, Multi-File Review & One-Click Terminal Error Auto-Fix (`v0.10.0`):**
-  - **2-Column Line-Numbered Side-by-Side Diff (`◫ Yan Yana` / `☰ Tek Sütun`):** Horizontally paired old/new lines computed directly in `git_ops.py` (`split_rows`) with dark & light theme support.
-  - **Multi-File Changes Review Panel (`📋 İncele`):** Step through all staged, unstaged, and untracked files (`◀` / `▶` + file pills) with per-file **Stage (`+`)**, **Unstage**, **Revert (`↺`)**, and **✨ AI İncele** code review.
-  - **Smart Terminal Error Detector & One-Click Auto-Fix Banner:** Live Terminal Pro SSE stream automatically catches Python tracebacks, `SyntaxError`/`AssertionError`/`FAIL:`/`ERROR:`, and JS errors — surfacing an instant banner with clickable `file:line` jump, **`🔧 Ajan v3 ile Düzelt`** (auto-launches Agent v3 + Oto-Test with `@file` context), and **`↻ Tekrar Koş`**.
+  - **2-Column Line-Numbered Side-by-Side Diff (`◫ Split` / `☰ Unified`):** Horizontally paired old/new lines computed directly in `git_ops.py` (`split_rows`) with dark & light theme support.
+  - **Multi-File Changes Review Panel (`📋 Review`):** Step through all staged, unstaged, and untracked files (`◀` / `▶` + file pills) with per-file **Stage (`+`)**, **Unstage**, **Revert (`↺`)**, and **✨ AI Review** code review.
+  - **Smart Terminal Error Detector & One-Click Auto-Fix Banner:** Live Terminal Pro SSE stream automatically catches Python tracebacks, `SyntaxError`/`AssertionError`/`FAIL:`/`ERROR:`, and JS errors — surfacing an instant banner with clickable `file:line` jump, **`🔧 Fix with Agent v3`** (auto-launches Agent v3 + Auto-Test with `@file` context), and **`↻ Re-run`**.
 - **Coding Agent v3 (`v0.9.0`):**
   - **16-Step Agent Loop + Duplicate Loop Guard:** Multi-file refactors and debugging up to 16 steps (6 steps in read-only Plan Mode) with automatic detection of repeated identical tool calls.
   - **5 New AST, Git & File Tools (11 Total):** `repo_map` (compact AST/symbol outline across Python/JS/TS), `find_symbols` (workspace definition lookup), `git_status`, `git_diff`, and undo-recorded `delete_file`.
