@@ -35,6 +35,14 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "project_overview",
+            "description": "Get a compact 1-shot project overview (manifests, directory/language counts, largest core files). Call FIRST when reviewing or orienting in a project.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_files",
             "description": "List files in subdir ('' for root).",
             "parameters": {"type": "object", "properties": {"subdir": {"type": "string"}}},
@@ -166,12 +174,12 @@ AGENT_TOOLS: list[dict[str, Any]] = [
 ]
 
 READONLY_TOOL_NAMES = {
-    "list_files", "read_file", "search_code",
+    "project_overview", "list_files", "read_file", "search_code",
     "repo_map", "find_symbols", "git_status", "git_diff",
 }
 READONLY_AGENT_TOOLS = [t for t in AGENT_TOOLS if t["function"]["name"] in READONLY_TOOL_NAMES]
 KNOWN_TOOL_NAMES = {t["function"]["name"] for t in AGENT_TOOLS}
-_CODE_MAP_EXTS = {".py", ".js", ".jsx", ".ts", ".tsx"}
+_CODE_MAP_EXTS = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".rs", ".go"}
 
 
 def detect_test_command(ws: Workspace) -> str | None:
@@ -234,7 +242,62 @@ def run_workspace_tests(ws: Workspace, custom_cmd: str | None = None, timeout: i
         return {"ran": True, "passed": False, "command": cmd, "exit_code": 1, "output": str(exc)}
 
 
-def build_repo_map(ws: Workspace, subdir: str = "", max_files: int = 25) -> str:
+def build_project_overview(ws: Workspace, max_chars: int = 3800) -> str:
+    """Compact 1-shot architecture summary (manifests, dir/language breakdown, largest code files)."""
+    items = ws.list_tree(max_depth=5, max_items=600)
+    files = [it for it in items if it.get("kind") == "file"]
+    dir_counts: dict[str, int] = {}
+    ext_counts: dict[str, int] = {}
+    code_files: list[tuple[int, str]] = []
+    for it in files:
+        rel = it["path"]
+        sz = int(it.get("size") or 0)
+        parts = rel.split("/")
+        top = parts[0] + "/" if len(parts) > 1 else "(root)"
+        dir_counts[top] = dir_counts.get(top, 0) + 1
+        ext = pathlib.Path(rel).suffix.lower() or "(no-ext)"
+        ext_counts[ext] = ext_counts.get(ext, 0) + 1
+        if ext in _CODE_MAP_EXTS and sz <= 300_000 and ".test." not in rel.lower() and "__tests__" not in rel.lower():
+            try:
+                nl = (ws.root / rel).read_text(encoding="utf-8", errors="replace").count("\n") + 1
+            except OSError:
+                nl = max(1, sz // 40)
+            code_files.append((nl, rel))
+
+    lines: list[str] = [f"Project Overview: `{ws.root.name}` ({len(files)} files indexed)"]
+    lines.append("Directories: " + ", ".join(f"{k}({v})" for k, v in sorted(dir_counts.items(), key=lambda x: -x[1])[:10]))
+    lines.append("Languages/Exts: " + ", ".join(f"{k}:{v}" for k, v in sorted(ext_counts.items(), key=lambda x: -x[1])[:10]))
+    pkg_p = ws.root / "package.json"
+    if pkg_p.is_file():
+        try:
+            pkg = json.loads(pkg_p.read_text(encoding="utf-8", errors="replace"))
+            deps = list((pkg.get("dependencies") or {}).keys())[:15]
+            scripts = list((pkg.get("scripts") or {}).keys())[:10]
+            lines.append(f"package.json: name={pkg.get('name')} v{pkg.get('version')} | scripts={scripts} | deps={deps}")
+        except Exception:
+            pass
+    for cargo_rel in ("Cargo.toml", "src-tauri/Cargo.toml"):
+        cp = ws.root / cargo_rel
+        if cp.is_file():
+            try:
+                ctxt = cp.read_text(encoding="utf-8", errors="replace")
+                deps = re.findall(r"^([A-Za-z0-9_-]+)\s*=", ctxt[ctxt.find("[dependencies]"):] if "[dependencies]" in ctxt else "", re.M)[:20]
+                lines.append(f"{cargo_rel}: deps={deps}")
+            except Exception:
+                pass
+    rdm = ws.root / "README.md"
+    if rdm.is_file():
+        rhead = "\n".join(rdm.read_text(encoding="utf-8", errors="replace").splitlines()[:12])[:550]
+        lines.append(f"README excerpt:\n{rhead}")
+    code_files.sort(key=lambda x: -x[0])
+    if code_files:
+        lines.append("Key/largest code files (lines):")
+        for nl, rel in code_files[:28]:
+            lines.append(f"  - {rel} ({nl}L)")
+    return "\n".join(lines)[:max_chars]
+
+
+def build_repo_map(ws: Workspace, subdir: str = "", max_files: int = 25, max_chars: int = 7800) -> str:
     """Build a compact AST/symbol outline across workspace code files for fast codebase orientation."""
     sub_clean = (subdir or "").strip().replace("\\", "/").strip("/")
     if sub_clean:
@@ -267,7 +330,7 @@ def build_repo_map(ws: Workspace, subdir: str = "", max_files: int = 25) -> str:
         else:
             lines.append("  (no top-level symbols)")
         blk = "\n".join(lines)
-        if total_chars + len(blk) > 7800:
+        if total_chars + len(blk) > max_chars:
             blocks.append("... (repo_map truncated for context budget)")
             break
         blocks.append(blk)
@@ -383,9 +446,12 @@ def is_dangerous_command(cmd: str) -> str | None:
     return None
 
 
-def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+def execute_tool(ws: Workspace, name: str, args: dict[str, Any], *, compact_budget: bool = False) -> tuple[str, dict[str, Any] | None]:
     """Execute one workspace tool safely. Returns (result_text, change_info_or_None)."""
     try:
+        if name == "project_overview":
+            return build_project_overview(ws, max_chars=3600 if compact_budget else 5200), None
+
         if name == "list_files":
             subdir = str(args.get("subdir") or "").strip()
             base = ws.safe_path(subdir) if subdir else ws.root
@@ -402,11 +468,13 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
             rel = str(args.get("path") or "")
             data = ws.read_file(rel)
             all_lines = data["content"].splitlines()
+            default_win = 119 if compact_budget else 199
+            max_chars = 5200 if compact_budget else 9000
             s = max(1, int(args.get("start_line") or 1))
-            e = min(len(all_lines), int(args.get("end_line") or (s + 199)))
+            e = min(len(all_lines), int(args.get("end_line") or (s + default_win)))
             numbered = [f"{i}: {all_lines[i - 1]}" for i in range(s, e + 1)]
             hdr = f"File: {data['path']} (lines {s}-{e} of {len(all_lines)})\n"
-            return hdr + "\n".join(numbered)[:9000], None
+            return hdr + "\n".join(numbered)[:max_chars], None
 
         if name == "search_code":
             q = str(args.get("query") or "")
@@ -418,7 +486,7 @@ def execute_tool(ws: Workspace, name: str, args: dict[str, Any]) -> tuple[str, d
         if name == "repo_map":
             subdir = str(args.get("subdir") or "").strip()
             max_files = int(args.get("max_files") or 25)
-            return build_repo_map(ws, subdir=subdir, max_files=max_files), None
+            return build_repo_map(ws, subdir=subdir, max_files=max_files, max_chars=4600 if compact_budget else 7800), None
 
         if name == "find_symbols":
             q = str(args.get("query") or "").strip()
@@ -668,28 +736,29 @@ def run_agent_stream(
         yield {"type": "done", "full_text": "".join(full)}
         return
 
-    # 2) Plan Mode (read-only inspection -> approval card) vs Full Agent v3 Mode (with optional Auto-Verify Self-Heal)
+    # 2) Plan/Review Mode (read-only inspection) vs Full Agent v3 Mode (with optional Auto-Verify Self-Heal)
     is_plan_mode = (mode == "plan")
     tools_spec = READONLY_AGENT_TOOLS if is_plan_mode else AGENT_TOOLS
     allowed_names = READONLY_TOOL_NAMES if is_plan_mode else KNOWN_TOOL_NAMES
-    effective_steps = min(max_steps, 6) if is_plan_mode else max_steps
+    effective_steps = min(max_steps, 10) if is_plan_mode else max_steps
+    compact_budget = (ctx_limit <= 16384) or is_inkling
 
     # Keep messages[0] immutable across turns for 100% KV prefix caching; attach per-turn context to latest user msg
     active_hint = f"\n[Active editor file: `{active_file['path']}`]" if (active_file and active_file.get("path")) else ""
     if is_plan_mode:
         sys_prompt = (
-            f"You are PicoStudio Planning Agent v3. Workspace: `{ws.root.name}`. "
-            "You are in READ-ONLY PLAN MODE. Do NOT modify files. "
-            "Use `repo_map`, `find_symbols`, `list_files`, `read_file`, `search_code`, `git_status`, or `git_diff` to inspect efficiently, "
-            "then produce a clear, numbered multi-file implementation plan (1. Hedef Dosyalar, 2. Yapılacak Değişiklikler, 3. Test/Doğrulama) in the user's language."
+            f"You are PicoStudio Planning & Review Agent v3. Workspace: `{ws.root.name}`. "
+            "You are in READ-ONLY MODE. Do NOT modify files. "
+            "Call `project_overview` FIRST for fast project orientation, then inspect 2-5 key files with `read_file`, `search_code`, `repo_map`, or `find_symbols`. "
+            "Then stop calling tools and write a concrete, file-and-line-cited review or numbered multi-file plan in the user's language."
             f"{project_rules}"
         )
     else:
         sys_prompt = (
             f"You are PicoStudio Coding Agent v3. Workspace: `{ws.root.name}`. "
-            "Use `repo_map` or `find_symbols` first to locate code quickly, `git_status`/`git_diff` to inspect changes, "
-            "and `edit_file` (preferred for targeted edits), `write_file`, `delete_file`, or `run_terminal` to implement and verify. "
-            "If an edit reports `[SYNTAX ERROR]`, fix it immediately. Be brief; reply in the user's language."
+            "Call `project_overview` FIRST for project reviews/orientation, then `repo_map`, `find_symbols`, or `read_file` to inspect specific files. "
+            "Use `edit_file` (preferred for targeted edits), `write_file`, `delete_file`, or `run_terminal` to implement and verify. "
+            "If an edit reports `[SYNTAX ERROR]`, fix it immediately. Be concise and concrete; reply in the user's language."
             f"{project_rules}"
         )
 
@@ -721,7 +790,7 @@ def run_agent_stream(
             "count": len(turn_undo_ids),
         }
 
-    while step < effective_steps:
+    while step < effective_steps + 1:
         if cancel_event is not None and cancel_event.is_set():
             yield {"type": "status", "text": "İptal edildi."}
             cp = _emit_checkpoint()
@@ -732,25 +801,38 @@ def run_agent_stream(
         step += 1
         conv, did_compact = compact_conversation(conv, max_total_chars=int(ctx_limit * 4 * 0.72))
         est_toks = estimate_context_tokens(conv)
+        force_final = (step > effective_steps) or (step >= 3 and est_toks >= int(ctx_limit * 0.78))
+        if force_final:
+            conv.append({
+                "role": "user",
+                "content": (
+                    "İnceleme adımları tamamlandı. Başka araç çağırma; şimdiye kadar okuduğun gerçek dosyalara "
+                    "dayanarak net, somut ve dosya adlarıyla desteklenmiş final raporunu/yanıtını yaz."
+                ),
+            })
         yield {
             "type": "metrics",
-            "step": step,
+            "step": min(step, effective_steps),
             "max_steps": effective_steps,
             "est_ctx_tokens": est_toks,
             "ctx_limit": ctx_limit,
             "compacted": did_compact,
         }
-        phase_lbl = "Plan hazırlanıyor" if is_plan_mode else "Ajan v3 düşünüyor"
-        yield {"type": "status", "text": f"{phase_lbl} (adım {step}/{effective_steps})..."}
-        payload = {
+        phase_lbl = "Final yanıt yazılıyor" if force_final else ("Plan/İnceleme hazırlanıyor" if is_plan_mode else "Ajan v3 düşünüyor")
+        yield {"type": "status", "text": f"{phase_lbl} (adım {min(step, effective_steps)}/{effective_steps})..."}
+        step_sampling = dict(sampling_extra)
+        if "reasoning_budget" in step_sampling and not force_final and step < effective_steps:
+            step_sampling["reasoning_budget"] = min(int(step_sampling["reasoning_budget"]), 512)
+        payload: dict[str, Any] = {
             "model": arbiter.coding_model,
             "messages": conv,
-            "tools": tools_spec,
-            "tool_choice": "auto",
             "max_tokens": 4096,
             "stream": True,
-            **sampling_extra,
+            **step_sampling,
         }
+        if not force_final:
+            payload["tools"] = tools_spec
+            payload["tool_choice"] = "auto"
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
         step_content: list[str] = []
         tool_calls_map: dict[int, dict[str, Any]] = {}
@@ -797,6 +879,18 @@ def run_agent_stream(
                         entry["function"]["name"] += fn["name"]
                     if fn.get("arguments"):
                         entry["function"]["arguments"] += fn["arguments"]
+
+        if force_final:
+            if is_plan_mode:
+                plan_txt = "".join(final_chunks).strip()
+                yield {"type": "plan_ready", "plan": plan_txt}
+                yield {"type": "done", "full_text": plan_txt}
+                return
+            cp = _emit_checkpoint()
+            if cp:
+                yield cp
+            yield {"type": "done", "full_text": "".join(final_chunks)}
+            return
 
         if not tool_calls_map:
             fb_calls = _extract_fallback_tool_calls("".join(step_content), step, allowed=allowed_names)
@@ -887,7 +981,7 @@ def run_agent_stream(
                 change_info = None
             else:
                 yield {"type": "tool", "name": fn_name, "args": parsed_args}
-                result_text, change_info = execute_tool(ws, fn_name, parsed_args)
+                result_text, change_info = execute_tool(ws, fn_name, parsed_args, compact_budget=compact_budget)
 
             if change_info:
                 modified_files.append(change_info["path"])

@@ -17,7 +17,8 @@ from typing import Any
 
 IGNORE_DIRS = {
     ".git", "__pycache__", "node_modules", ".venv", "venv",
-    "models", "engine", "build", "dist", ".pytest_cache", ".mypy_cache",
+    "models", "engine", "build", "dist", "target", ".next", ".nuxt",
+    "coverage", "out", ".turbo", ".pytest_cache", ".mypy_cache",
 }
 TEXT_EXTS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".json", ".md",

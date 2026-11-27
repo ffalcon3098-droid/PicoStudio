@@ -78,6 +78,34 @@ def extract_file_symbols(rel_path: str, content: str) -> list[dict[str, Any]]:
                 out.append({"name": m.group(5), "short": m.group(5), "kind": "function", "line": ln, "detail": f"const {m.group(5)} =>"})
         return out
 
+    if ext == ".rs":
+        prev_tauri = False
+        for idx, ln in enumerate((content or "").splitlines(), 1):
+            st = ln.strip()
+            if "#[tauri::command" in st:
+                prev_tauri = True
+                continue
+            m = re.match(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(fn|struct|enum|trait|mod)\s+([A-Za-z_]\w*)", ln)
+            if m:
+                kind = "tauri_cmd" if (prev_tauri and m.group(1) == "fn") else m.group(1)
+                out.append({"name": m.group(2), "short": m.group(2), "kind": kind, "line": idx, "detail": f"{m.group(1)} {m.group(2)}"})
+                prev_tauri = False
+                continue
+            if st and not st.startswith("#[") and not st.startswith("//"):
+                prev_tauri = False
+        return out
+
+    if ext == ".go":
+        for idx, ln in enumerate((content or "").splitlines(), 1):
+            m = re.match(r"^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)", ln)
+            if m:
+                out.append({"name": m.group(1), "short": m.group(1), "kind": "function", "line": idx, "detail": f"func {m.group(1)}"})
+                continue
+            m2 = re.match(r"^\s*type\s+([A-Za-z_]\w*)\s+(struct|interface)\b", ln)
+            if m2:
+                out.append({"name": m2.group(1), "short": m2.group(1), "kind": m2.group(2), "line": idx, "detail": f"type {m2.group(1)} {m2.group(2)}"})
+        return out
+
     return out
 
 
@@ -89,7 +117,7 @@ def search_workspace_symbols(ws: Workspace, query: str = "", exact: bool = False
         if item["kind"] != "file" or item["size"] > 256 * 1024:
             continue
         p = ws.root / item["path"]
-        if p.suffix.lower() not in (".py", ".js", ".mjs", ".ts", ".tsx", ".jsx"):
+        if p.suffix.lower() not in (".py", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".rs", ".go"):
             continue
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
