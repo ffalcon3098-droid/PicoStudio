@@ -10,8 +10,21 @@
 **PicoStudio** unifies your local **Coding Agent v3 ([PicoCode](https://github.com/ffalcon3098-droid/PicoCode) · Qwen3-Coder-30B-A3B MoE, Inkling 2 Mini Vision, Qwen2.5-Coder-7B)** and **Video/Image Studio ([localVid / PicoVid](https://github.com/ffalcon3098-droid/localVid) · LTX-2.3 22B Distilled 1.1 Audio+Video, Wan 2.2 TI2V-5B, Z-Image-Turbo)** into a single zero-dependency **English-first 3-pane Dark/Light Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Side-by-Side Diff & Multi-File Review**, **Multi-Clip Timeline Editor (`xfade` + stereo `acrossfade`)**, and **Smart Developer CLI** — sharing models zero-copy from sibling `PicoCode` and `localVid` folders with an automatic **4–6 GB VRAM GPU Arbiter**.
 
 <p align="center">
-  <img src="docs/assets/terminal_showcase.svg" alt="PicoStudio v0.12.0 Unified CLI, Live GPU Arbiter & Model Inventory" width="100%">
+  <img src="docs/assets/ide_coding_agent.png" alt="PicoStudio v0.12.0 3-Pane Local Web IDE, Coding Agent v3, Terminal Pro & Live 6 GB VRAM Telemetry" width="100%">
 </p>
+
+### Live UI & Benchmark Screenshots (Captured on 6 GB AMD RX 5600 XT · Windows 11)
+
+| Side-by-Side Diff & Multi-File Review (`Git`) | Live Terminal Benchmark & Hardware Status (`tok/s`) |
+|---|---|
+| ![Side-by-Side Diff & Multi-File Review](docs/assets/ide_split_diff_review.png) | ![Live Terminal Benchmark & Hardware Status](docs/assets/terminal_live_bench.png) |
+
+<details>
+<summary><b>Video &amp; Image Studio (LTX-2.3 22B Audio+Video · 6 GB VRAM Auto-Handoff · Multi-Clip Timeline)</b></summary>
+<p align="center">
+  <img src="docs/assets/ide_video_studio.png" alt="PicoStudio Video & Image Studio with LTX-2.3 22B Audio+Video, 6 GB VRAM Auto-Handoff, and Multi-Clip Timeline" width="100%">
+</p>
+</details>
 
 ---
 

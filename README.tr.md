@@ -10,8 +10,21 @@
 **PicoStudio**, elinizdeki yerel **Kod Ajanı v3'ü ([PicoCode](https://github.com/ffalcon3098-droid/PicoCode) · Qwen3-Coder-30B-A3B MoE, Inkling 2 Mini Vision, Qwen2.5-Coder-7B)** ve **Video/Görsel Motorlarını ([localVid / PicoVid](https://github.com/ffalcon3098-droid/localVid) · LTX-2.3 22B Distilled 1.1 Ses+Video, Wan 2.2 TI2V-5B, Z-Image-Turbo)** tek bir sıfır bağımlılıklı **İngilizce varsayılan 3 panelli Web IDE Pro** (`http://127.0.0.1:7900`), **Terminal Pro**, **Yan Yana (Side-by-Side) Diff & Çok Dosyalı İnceleme**, **Çoklu Klip Zaman Çizelgesi (`xfade` + stereo `acrossfade`)** ve **akıllı CLI** altında birleştirir. Modelleri kopyalamaz; komşu `PicoCode` ve `localVid` klasörlerinden sıfır ekstra disk kullanımıyla ve otomatik **4–6 GB VRAM GPU Nöbetçisi** ile çalıştırır.
 
 <p align="center">
-  <img src="docs/assets/terminal_showcase.svg" alt="PicoStudio v0.12.0 Birleşik CLI, Canlı GPU Arbiter ve Model Envanteri" width="100%">
+  <img src="docs/assets/ide_coding_agent.png" alt="PicoStudio v0.12.0 3 Panelli Yerel Web IDE, Kod Ajanı v3, Terminal Pro ve Canlı 6 GB VRAM Telemetrisi" width="100%">
 </p>
+
+### Canlı Arayüz & Benchmark Ekran Görüntüleri (6 GB AMD RX 5600 XT · Windows 11)
+
+| Yan Yana (Split) Diff & Çok Dosyalı İnceleme (`Git`) | Canlı Terminal Benchmark & Donanım Durumu (`tok/s`) |
+|---|---|
+| ![Yan Yana Diff ve Çok Dosyalı İnceleme](docs/assets/ide_split_diff_review.png) | ![Canlı Terminal Benchmark ve Donanım Durumu](docs/assets/terminal_live_bench.png) |
+
+<details>
+<summary><b>Video &amp; Görsel Stüdyosu (LTX-2.3 22B Ses+Video · 6 GB VRAM Otomatik Devir · Çoklu Klip Zaman Çizelgesi)</b></summary>
+<p align="center">
+  <img src="docs/assets/ide_video_studio.png" alt="LTX-2.3 22B Ses+Video, 6 GB VRAM Otomatik Devir ve Çoklu Klip Zaman Çizelgesi ile PicoStudio Video Stüdyosu" width="100%">
+</p>
+</details>
 
 ---
 

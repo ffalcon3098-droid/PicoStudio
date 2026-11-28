@@ -259,7 +259,13 @@ class GPUArbiter:
             if existing_proc is None:
                 self.stop_coding()
                 if self._picocode_serve is None:
-                    return False, f"PicoCode not found: {self.picocode_dir}"
+                    return (
+                        False,
+                        f"PicoCode not found at '{self.picocode_dir}'. "
+                        "Clone PicoCode side-by-side next to PicoStudio "
+                        "(git clone https://github.com/ffalcon3098-droid/PicoCode.git) "
+                        "and run .\\setup.cmd inside PicoCode first.",
+                    )
 
                 reg = self._picocode_serve.load_registry(self.picocode_dir / "configs" / "models_registry.json")
                 if chosen_model in reg["models"]:
